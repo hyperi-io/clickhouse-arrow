@@ -65,8 +65,7 @@ impl Serializer for VariantSerializer {
 
         // Collect discriminators and per-variant values
         let mut discriminators: Vec<u8> = Vec::with_capacity(values.len());
-        let mut variant_columns: Vec<Vec<Value>> =
-            vec![Vec::new(); variant_types.len()];
+        let mut variant_columns: Vec<Vec<Value>> = vec![Vec::new(); variant_types.len()];
 
         for value in values {
             match value {
@@ -100,9 +99,7 @@ impl Serializer for VariantSerializer {
         for (i, variant_type) in variant_types.iter().enumerate() {
             let column_values = std::mem::take(&mut variant_columns[i]);
             if !column_values.is_empty() {
-                variant_type
-                    .serialize_column(column_values, writer, state)
-                    .await?;
+                variant_type.serialize_column(column_values, writer, state).await?;
             }
         }
 
@@ -126,8 +123,7 @@ impl Serializer for VariantSerializer {
 
         // Collect discriminators and per-variant values
         let mut discriminators: Vec<u8> = Vec::with_capacity(values.len());
-        let mut variant_columns: Vec<Vec<Value>> =
-            vec![Vec::new(); variant_types.len()];
+        let mut variant_columns: Vec<Vec<Value>> = vec![Vec::new(); variant_types.len()];
 
         for value in values {
             match value {
@@ -177,10 +173,7 @@ fn find_matching_variant(value: &Value, variant_types: &[Type]) -> Result<u8> {
             return Ok(i as u8);
         }
     }
-    Err(Error::SerializeError(format!(
-        "Value {:?} does not match any variant type",
-        value
-    )))
+    Err(Error::SerializeError(format!("Value {:?} does not match any variant type", value)))
 }
 
 /// Check if a value matches a type.
@@ -240,7 +233,7 @@ mod tests {
         let discr = find_matching_variant(&Value::Int64(42), &variants).unwrap();
         assert_eq!(discr, 1);
 
-        let discr = find_matching_variant(&Value::Float64(3.14), &variants).unwrap();
+        let discr = find_matching_variant(&Value::Float64(3.125), &variants).unwrap();
         assert_eq!(discr, 2);
     }
 
@@ -253,26 +246,27 @@ mod tests {
 
         let values = vec![
             Value::String(b"hello".to_vec()), // discriminator 2 (String)
-            Value::Int64(42),                  // discriminator 1 (Int64)
-            Value::Float64(3.14),              // discriminator 0 (Float64)
-            Value::Null,                       // discriminator 255
+            Value::Int64(42),                 // discriminator 1 (Int64)
+            Value::Float64(3.125),            // discriminator 0 (Float64)
+            Value::Null,                      // discriminator 255
         ];
 
         let mut buf = BytesMut::new();
         let mut state = SerializerState::default();
 
         let result = VariantSerializer::write_sync(&variant_type, values, &mut buf, &mut state);
-        assert!(result.is_ok(), "Serialization failed: {:?}", result);
+        assert!(result.is_ok(), "Serialization failed: {result:?}");
 
         // Verify discriminators are written first
-        // Row 1: String (discr 2), Row 2: Int64 (discr 1), Row 3: Float64 (discr 0), Row 4: NULL (discr 255)
+        // Row 1: String (discr 2), Row 2: Int64 (discr 1), Row 3: Float64 (discr 0), Row 4: NULL
+        // (discr 255)
         assert_eq!(buf[0], 2, "First discriminator should be 2 (String)");
         assert_eq!(buf[1], 1, "Second discriminator should be 1 (Int64)");
         assert_eq!(buf[2], 0, "Third discriminator should be 0 (Float64)");
         assert_eq!(buf[3], 255, "Fourth discriminator should be 255 (NULL)");
 
         // After discriminators, variant data follows (Float64, then Int64, then String)
-        // Float64: 3.14 as f64 little-endian (8 bytes)
+        // Float64: 3.125 as f64 little-endian (8 bytes)
         // Int64: 42 as i64 little-endian (8 bytes)
         // String: length-prefixed "hello" (1 byte len + 5 bytes)
     }

@@ -1541,6 +1541,322 @@ impl Client<ArrowFormat> {
         Ok(ClickHouseResponse::new(Box::pin(self.query_raw(query, params, qid).await?)))
     }
 
+    /// Executes a `ClickHouse` query with result limits and streams Arrow [`RecordBatch`] results.
+    ///
+    /// This method is useful for safely querying large datasets where you want to cap
+    /// resource consumption. Results are streamed until any configured limit is exceeded,
+    /// at which point the stream stops and the response is marked as truncated.
+    ///
+    /// # Parameters
+    /// - `query`: The SQL query to execute (e.g., `"SELECT * FROM my_table"`).
+    /// - `limits`: Configuration for maximum memory, rows, and/or batches.
+    /// - `qid`: Optional query ID for tracking and debugging.
+    ///
+    /// # Returns
+    /// A [`Result`] containing a [`LimitedResponse<ClickHouseResponse<RecordBatch>>`] that
+    /// streams query results and provides access to truncation status via `stats()`.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use clickhouse_arrow::prelude::*;
+    ///
+    /// let client = Client::builder()
+    ///     .with_endpoint("localhost:9000")
+    ///     .build_arrow()
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// let limits = QueryLimits::none()
+    ///     .with_max_rows(1000)
+    ///     .with_max_memory_mb(10);
+    ///
+    /// let mut response = client.query_with_limits("SELECT * FROM huge_table", limits, None)
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// while let Some(batch) = response.next().await {
+    ///     let batch = batch.unwrap();
+    ///     println!("Received batch with {} rows", batch.num_rows());
+    /// }
+    ///
+    /// let stats = response.stats();
+    /// if stats.is_truncated() {
+    ///     println!("Results truncated: {}", stats.summary());
+    /// }
+    /// ```
+    #[instrument(
+        skip_all,
+        fields(db.system = "clickhouse", db.operation = "query", clickhouse.query.id)
+    )]
+    pub async fn query_with_limits(
+        &self,
+        query: impl Into<ParsedQuery>,
+        limits: QueryLimits,
+        qid: Option<Qid>,
+    ) -> Result<LimitedResponse<ClickHouseResponse<RecordBatch>>> {
+        self.query_with_limits_params(query, None, limits, qid).await
+    }
+
+    /// Executes a `ClickHouse` query with parameters and result limits.
+    ///
+    /// This is the parameterized version of [`Client::query_with_limits`].
+    ///
+    /// # Parameters
+    /// - `query`: The SQL query to execute.
+    /// - `params`: The query parameters to provide.
+    /// - `limits`: Configuration for maximum memory, rows, and/or batches.
+    /// - `qid`: Optional query ID for tracking and debugging.
+    ///
+    /// # Returns
+    /// A [`Result`] containing a [`LimitedResponse`] that streams query results with
+    /// limit enforcement and truncation tracking.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use clickhouse_arrow::prelude::*;
+    ///
+    /// let client = Client::builder()
+    ///     .with_endpoint("localhost:9000")
+    ///     .build_arrow()
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// let params = Some(vec![("table", ParamValue::from("my_table"))].into());
+    /// let limits = QueryLimits::none()
+    ///     .with_max_rows(500)
+    ///     .with_max_batches(10);
+    ///
+    /// let mut response = client.query_with_limits_params(
+    ///     "SELECT * FROM {table:Identifier}",
+    ///     params,
+    ///     limits,
+    ///     None,
+    /// ).await.unwrap();
+    ///
+    /// while let Some(batch) = response.next().await {
+    ///     println!("Batch: {} rows", batch.unwrap().num_rows());
+    /// }
+    ///
+    /// println!("Stats: {}", response.stats().summary());
+    /// ```
+    #[instrument(
+        skip_all,
+        fields(db.system = "clickhouse", db.operation = "query", clickhouse.query.id)
+    )]
+    pub async fn query_with_limits_params(
+        &self,
+        query: impl Into<ParsedQuery>,
+        params: Option<QueryParams>,
+        limits: QueryLimits,
+        qid: Option<Qid>,
+    ) -> Result<LimitedResponse<ClickHouseResponse<RecordBatch>>> {
+        let inner = self.query_params(query, params, qid).await?;
+        Ok(LimitedResponse::new(inner, limits))
+    }
+
+    /// Executes a `ClickHouse` query with unified options.
+    ///
+    /// This method provides a unified interface for query execution with optional:
+    /// - Query parameters
+    /// - Result limits (memory, rows, batches)
+    /// - EXPLAIN execution (parallel or explain-only)
+    /// - Query ID
+    ///
+    /// For simpler use cases, consider using [`Client::query`], [`Client::query_params`],
+    /// or [`Client::query_with_limits`] instead.
+    ///
+    /// # Parameters
+    /// - `query`: The SQL query to execute.
+    /// - `options`: Configuration for params, limits, explain, and query ID.
+    ///
+    /// # Returns
+    /// A [`Result`] containing a [`ClickHouseResponse<RecordBatch>`] that streams
+    /// query results. If explain was configured, use [`ClickHouseResponse::explain`]
+    /// to retrieve the explain result.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use clickhouse_arrow::prelude::*;
+    ///
+    /// let client = Client::builder()
+    ///     .with_endpoint("localhost:9000")
+    ///     .build_arrow()
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// // Query with EXPLAIN running in parallel
+    /// let opts = QueryOptions::new()
+    ///     .with_explain(ExplainOptions::plan());
+    ///
+    /// let mut response = client.query_with_options("SELECT * FROM users", opts).await?;
+    ///
+    /// // Consume query results as normal
+    /// while let Some(batch) = response.next().await {
+    ///     let batch = batch?;
+    ///     println!("Received {} rows", batch.num_rows());
+    /// }
+    ///
+    /// // Get explain result (blocks if still running)
+    /// if let Some(explain) = response.explain().await {
+    ///     println!("Query plan:\n{}", explain?);
+    /// }
+    ///
+    /// // Explain-only mode (no query execution)
+    /// let opts = QueryOptions::new()
+    ///     .with_explain(ExplainOptions::plan().explain_only());
+    ///
+    /// let mut response = client.query_with_options("SELECT * FROM users", opts).await?;
+    /// // Stream is empty in explain-only mode
+    /// assert!(response.next().await.is_none());
+    /// // Get the explain result
+    /// let explain = response.explain().await.unwrap()?;
+    /// println!("{}", explain);
+    /// ```
+    #[instrument(
+        skip_all,
+        fields(db.system = "clickhouse", db.operation = "query", clickhouse.query.id)
+    )]
+    pub async fn query_with_options(
+        &self,
+        query: impl Into<ParsedQuery>,
+        options: QueryOptions,
+    ) -> Result<ClickHouseResponse<RecordBatch>> {
+        use crate::explain::{ExplainFormat, ExplainResult};
+
+        let parsed_query = query.into();
+        let qid = options.qid.unwrap_or_else(Qid::new);
+
+        // Handle EXPLAIN if configured
+        let explain_receiver = if let Some(ref explain_opts) = options.explain {
+            let explain_query = format!("{} {}", explain_opts.build_prefix(), &*parsed_query);
+            let resolved_format = explain_opts.format.resolve(explain_opts.operation);
+
+            // Create channel for explain result
+            let (tx, rx) = oneshot::channel();
+
+            // Clone what we need for the spawned task
+            let client = self.clone();
+            let explain_qid = Qid::new();
+
+            // Spawn the explain query (detached, receiver will wait for result)
+            drop(tokio::spawn(async move {
+                let result = async {
+                    let mut stream = client
+                        .query_params(&explain_query, None::<QueryParams>, Some(explain_qid))
+                        .await?;
+
+                    // Collect all batches
+                    let mut batches = Vec::new();
+                    while let Some(batch_result) = stream.next().await {
+                        batches.push(batch_result?);
+                    }
+
+                    // Convert to ExplainResult based on format
+                    match resolved_format {
+                        ExplainFormat::Arrow | ExplainFormat::Auto => {
+                            // For Arrow format, return the batch directly
+                            if let Some(batch) = batches.into_iter().next() {
+                                Ok(ExplainResult::Arrow(batch))
+                            } else {
+                                Ok(ExplainResult::Text(String::new()))
+                            }
+                        }
+                        #[cfg(feature = "serde")]
+                        ExplainFormat::Json => {
+                            // Collect text and parse as JSON
+                            let text = Self::extract_explain_text(&batches)?;
+                            let json: serde_json::Value =
+                                serde_json::from_str(&text).map_err(|e| {
+                                    Error::DeserializeError(format!(
+                                        "Failed to parse EXPLAIN JSON: {e}"
+                                    ))
+                                })?;
+                            Ok(ExplainResult::Json(json))
+                        }
+                        #[cfg(not(feature = "serde"))]
+                        ExplainFormat::Json => {
+                            // Without serde, return as text
+                            let text = Self::extract_explain_text(&batches)?;
+                            Ok(ExplainResult::Text(text))
+                        }
+                        ExplainFormat::Text => {
+                            let text = Self::extract_explain_text(&batches)?;
+                            Ok(ExplainResult::Text(text))
+                        }
+                    }
+                }
+                .await;
+
+                // Send result, ignore if receiver dropped
+                drop(tx.send(result));
+            }));
+
+            Some(rx)
+        } else {
+            None
+        };
+
+        // Handle explain-only mode
+        if options.is_explain_only() {
+            // Return empty stream with explain receiver
+            let empty_stream = stream::empty();
+            return Ok(if let Some(rx) = explain_receiver {
+                ClickHouseResponse::from_stream_with_explain(empty_stream, rx)
+            } else {
+                ClickHouseResponse::from_stream(empty_stream)
+            });
+        }
+
+        // Execute the actual query
+        let (query_str, recorded_qid) = record_query(Some(qid), parsed_query, self.client_id);
+        let stream = self.query_raw(query_str, options.params, recorded_qid).await?;
+
+        // Wrap in limited response if limits are configured
+        let response = if let Some(limits) = options.limits {
+            let limited = LimitedResponse::new(ClickHouseResponse::from_stream(stream), limits);
+            // Note: We lose the explain receiver here since LimitedResponse wraps
+            // ClickHouseResponse For now, we'll handle this by not supporting limits +
+            // explain together TODO: Consider wrapping LimitedResponse to preserve
+            // explain
+            if explain_receiver.is_some() {
+                return Err(Error::Client(
+                    "Cannot use limits and explain together yet. Use query_with_limits or \
+                     query_with_options without limits."
+                        .into(),
+                ));
+            }
+            ClickHouseResponse::from_stream(limited)
+        } else if let Some(rx) = explain_receiver {
+            ClickHouseResponse::with_explain(Box::pin(stream), rx)
+        } else {
+            ClickHouseResponse::new(Box::pin(stream))
+        };
+
+        Ok(response)
+    }
+
+    /// Extract text from EXPLAIN result batches.
+    fn extract_explain_text(batches: &[RecordBatch]) -> Result<String> {
+        use arrow::array::{Array, StringArray};
+
+        let mut lines = Vec::new();
+        for batch in batches {
+            if batch.num_columns() > 0 {
+                // EXPLAIN results typically have a single string column named "explain"
+                let col = batch.column(0);
+                if let Some(string_array) = col.as_any().downcast_ref::<StringArray>() {
+                    for i in 0..string_array.len() {
+                        if !string_array.is_null(i) {
+                            lines.push(string_array.value(i).to_string());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(lines.join("\n"))
+    }
+
     /// Executes a `ClickHouse` query and streams rows as column-major values.
     ///
     /// This method sends a query to `ClickHouse` and returns a stream of rows, where

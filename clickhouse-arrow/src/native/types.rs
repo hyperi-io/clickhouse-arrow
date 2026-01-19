@@ -85,14 +85,15 @@ pub enum Type {
     Object,
 
     // === DFE Fork: New types for ClickHouse 24.x+ ===
-
     /// Variant type - discriminated union of types
     /// Example: Variant(String, UInt64, Array(String))
     Variant(Vec<Type>),
 
     /// Dynamic type - can hold any type, types discovered at runtime
     /// max_types parameter limits separate storage columns (default 32)
-    Dynamic { max_types: Option<usize> },
+    Dynamic {
+        max_types: Option<usize>,
+    },
 
     /// Nested type - nested table structure
     /// Stored as parallel arrays internally
@@ -115,14 +116,14 @@ pub enum Type {
     /// name: function name (e.g., "sum", "avg", "uniq")
     /// types: argument types
     AggregateFunction {
-        name: String,
+        name:  String,
         types: Vec<Type>,
     },
 
     /// SimpleAggregateFunction - simplified aggregate state
     /// Used for simple aggregates that can be combined with simple operations
     SimpleAggregateFunction {
-        name: String,
+        name:  String,
         types: Vec<Type>,
     },
 }
@@ -473,7 +474,8 @@ impl Type {
                 // DFE Fork: SimpleAggregateFunction delegates to underlying type
                 Type::SimpleAggregateFunction { types, .. } => {
                     if let Some(inner_type) = types.first() {
-                        let inner_values = inner_type.deserialize_column(reader, rows, state).await?;
+                        let inner_values =
+                            inner_type.deserialize_column(reader, rows, state).await?;
                         inner_values
                             .into_iter()
                             .map(|v| Value::SimpleAggregateFunction(Box::new(v)))
@@ -680,9 +682,7 @@ impl Type {
                                 other => other,
                             })
                             .collect();
-                        inner_type
-                            .serialize_column(inner_values, writer, state)
-                            .await?;
+                        inner_type.serialize_column(inner_values, writer, state).await?;
                     } else {
                         return Err(Error::Unimplemented(
                             "SimpleAggregateFunction with no types".to_string(),
@@ -1001,9 +1001,10 @@ impl Type {
             (Type::Time, Value::Time(_)) => true,
             (Type::Time64(p1), Value::Time64(p2, _)) => p1 == p2,
             (Type::AggregateFunction { .. }, Value::AggregateFunction(_)) => true,
-            (Type::SimpleAggregateFunction { types, .. }, Value::SimpleAggregateFunction(inner)) => {
-                types.first().is_some_and(|t| t.inner_validate_value(inner))
-            }
+            (
+                Type::SimpleAggregateFunction { types, .. },
+                Value::SimpleAggregateFunction(inner),
+            ) => types.first().is_some_and(|t| t.inner_validate_value(inner)),
             (Type::Variant(_), Value::Variant(_, _) | Value::Null) => true,
             (Type::Dynamic { .. }, Value::Dynamic(_, _) | Value::Null) => true,
             _ => false,

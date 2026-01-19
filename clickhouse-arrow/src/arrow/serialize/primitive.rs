@@ -34,6 +34,7 @@ use arrow::datatypes::{DataType, i256};
 use tokio::io::AsyncWriteExt;
 
 use crate::io::{ClickHouseBytesWrite, ClickHouseWrite};
+use crate::simd::uuid_slice_to_clickhouse;
 use crate::{Error, Result, Type};
 
 /// Serializes an Arrow array to `ClickHouse`’s native format for primitive types.
@@ -112,16 +113,20 @@ pub(super) async fn serialize_async<W: ClickHouseWrite>(
                 .downcast_ref::<FixedSizeBinaryArray>()
                 .ok_or(Error::ArrowSerialize("Expected FixedSizeBinaryArray for Uuid".into()))?;
 
+            // Use static zero UUID for null values
+            static NULL_UUID: [u8; 16] = [0u8; 16];
+
             for i in 0..array.len() {
-                let value = if array.is_null(i) { &[0u8; 16] } else { array.value(i) };
-                if value.len() != 16 {
-                    return Err(Error::ArrowSerialize("UUID must be 16 bytes".into()));
-                }
-                let bytes: [u8; 16] = value.try_into().unwrap();
-                let low = u64::from_le_bytes(bytes[..8].try_into().unwrap());
-                let high = u64::from_le_bytes(bytes[8..].try_into().unwrap());
-                writer.write_u64_le(high).await?; // High bits first
-                writer.write_u64_le(low).await?; // Low bits second
+                let value = if array.is_null(i) {
+                    &NULL_UUID
+                } else {
+                    // Convert UUID to ClickHouse format (swap halves) with single write
+                    let bytes = uuid_slice_to_clickhouse(array.value(i))
+                        .ok_or_else(|| Error::ArrowSerialize("UUID must be 16 bytes".into()))?;
+                    writer.write_all(&bytes).await?;
+                    continue;
+                };
+                writer.write_all(value).await?;
             }
         }
         _ => {
@@ -185,16 +190,18 @@ pub(super) fn serialize<W: ClickHouseBytesWrite>(
                 .downcast_ref::<FixedSizeBinaryArray>()
                 .ok_or(Error::ArrowSerialize("Expected FixedSizeBinaryArray for Uuid".into()))?;
 
+            // Use static zero UUID for null values
+            static NULL_UUID: [u8; 16] = [0u8; 16];
+
             for i in 0..array.len() {
-                let value = if array.is_null(i) { &[0u8; 16] } else { array.value(i) };
-                if value.len() != 16 {
-                    return Err(Error::ArrowSerialize("UUID must be 16 bytes".into()));
+                if array.is_null(i) {
+                    writer.put_slice(&NULL_UUID);
+                } else {
+                    // Convert UUID to ClickHouse format (swap halves) with single write
+                    let bytes = uuid_slice_to_clickhouse(array.value(i))
+                        .ok_or_else(|| Error::ArrowSerialize("UUID must be 16 bytes".into()))?;
+                    writer.put_slice(&bytes);
                 }
-                let bytes: [u8; 16] = value.try_into().unwrap();
-                let low = u64::from_le_bytes(bytes[..8].try_into().unwrap());
-                let high = u64::from_le_bytes(bytes[8..].try_into().unwrap());
-                writer.put_u64_le(high); // High bits first
-                writer.put_u64_le(low); // Low bits second
             }
         }
         _ => {

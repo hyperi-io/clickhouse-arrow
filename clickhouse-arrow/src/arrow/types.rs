@@ -480,15 +480,26 @@ pub fn ch_to_arrow_type(ch_type: &Type, options: Option<ArrowOptions>) -> Result
         // Unwrapped above
         Type::Nullable(_) => unreachable!(),
         // DFE Fork: New types - Arrow type mapping
-        Type::Variant(_) => {
-            // Variant is stored as a union type in Arrow
-            // For now, represent as Binary (the raw serialized form)
-            DataType::Binary
+        Type::Variant(variants) => {
+            // Variant maps to Arrow Dense Union type
+            let fields: UnionFields = variants
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let (arrow_type, nullable) = ch_to_arrow_type(t, options)?;
+                    let type_name = format!("{t}");
+                    #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                    let field = Arc::new(Field::new(&type_name, arrow_type, nullable));
+                    Ok((i as i8, field))
+                })
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .collect();
+            DataType::Union(fields, UnionMode::Dense)
         }
         Type::Dynamic { .. } => {
-            // Dynamic is similar to Variant - can be any type
-            // Represent as Binary for now
-            DataType::Binary
+            // Dynamic can contain any type at runtime, represent as JSON string
+            DataType::Utf8
         }
         Type::Nested(fields) => {
             // Nested is essentially a struct of arrays
@@ -499,7 +510,11 @@ pub fn ch_to_arrow_type(ch_type: &Type, options: Option<ArrowOptions>) -> Result
                         // Nested fields are arrays of the inner type
                         Field::new(
                             name,
-                            DataType::List(Arc::new(Field::new(LIST_ITEM_FIELD_NAME, arrow_type, is_null))),
+                            DataType::List(Arc::new(Field::new(
+                                LIST_ITEM_FIELD_NAME,
+                                arrow_type,
+                                is_null,
+                            ))),
                             false, // Nested arrays are not nullable
                         )
                     })

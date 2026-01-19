@@ -2,6 +2,7 @@ use arrow::array::*;
 use tokio::io::AsyncWriteExt;
 
 use crate::io::{ClickHouseBytesWrite, ClickHouseWrite};
+use crate::simd::PooledBuffer;
 use crate::{Error, Result, Type};
 
 /// Serializes an Arrow array to `ClickHouse`’s native format for string or binary types.
@@ -153,7 +154,7 @@ macro_rules! put_variable_values {
 macro_rules! write_fixed_values {
     // Fixed-size with dynamic length (e.g., FixedSizedString)
     ($name:ident, [$(($at:ty => $coerce:expr)),* $(,)?]) => {
-        /// Serializes an Arrow array to ClickHouse’s native format for fixed-length data.
+        /// Serializes an Arrow array to ClickHouse's native format for fixed-length data.
         ///
         /// Writes each value padded to the specified length with zeros if shorter, or truncated if
         /// longer. Null values are written as zeroed buffers of the expected length. Supports multiple
@@ -172,20 +173,28 @@ macro_rules! write_fixed_values {
             len: usize
         ) -> Result<()> {
             let expected_len = len;
+            // Use pooled buffer for padding - reuse across iterations
+            let mut padding_buf = PooledBuffer::with_capacity(expected_len);
+            padding_buf.resize(expected_len, 0);
+            // Keep a separate zero buffer for nulls to avoid clearing on each null
+            let zero_buf = vec![0u8; expected_len];
+
             $(
                 if let Some(array) = column.as_any().downcast_ref::<$at>() {
                     for i in 0..array.len() {
                         if array.is_null(i) {
-                            writer.write_all(&vec![0u8; expected_len]).await?;
+                            // Write zeroed buffer for null
+                            writer.write_all(&zero_buf).await?;
                             continue;
                         }
 
                         let value = $coerce(array.value(i));
                         if value.len() != expected_len {
-                            let mut padded = vec![0u8; expected_len];
+                            // Reuse the padding buffer - clear and copy
+                            padding_buf.fill(0);
                             let copy_len = value.len().min(expected_len);
-                            padded[..copy_len].copy_from_slice(&value[..copy_len]);
-                            writer.write_all(&padded).await?;
+                            padding_buf[..copy_len].copy_from_slice(&value[..copy_len]);
+                            writer.write_all(&padding_buf).await?;
                         } else {
                             writer.write_all(&value).await?;
                         };
@@ -203,7 +212,7 @@ macro_rules! write_fixed_values {
 macro_rules! put_fixed_values {
     // Fixed-size with dynamic length (e.g., FixedSizedString)
     ($name:ident, [$(($at:ty => $coerce:expr)),* $(,)?]) => {
-        /// Serializes an Arrow array to ClickHouse’s native format for fixed-length data.
+        /// Serializes an Arrow array to ClickHouse's native format for fixed-length data.
         ///
         /// Writes each value padded to the specified length with zeros if shorter, or truncated if
         /// longer. Null values are written as zeroed buffers of the expected length. Supports multiple
@@ -222,20 +231,28 @@ macro_rules! put_fixed_values {
             len: usize
         ) -> Result<()> {
             let expected_len = len;
+            // Use pooled buffer for padding - reuse across iterations
+            let mut padding_buf = PooledBuffer::with_capacity(expected_len);
+            padding_buf.resize(expected_len, 0);
+            // Keep a separate zero buffer for nulls to avoid clearing on each null
+            let zero_buf = vec![0u8; expected_len];
+
             $(
                 if let Some(array) = column.as_any().downcast_ref::<$at>() {
                     for i in 0..array.len() {
                         if array.is_null(i) {
-                            writer.put_slice(&vec![0u8; expected_len]);
+                            // Write zeroed buffer for null
+                            writer.put_slice(&zero_buf);
                             continue;
                         }
 
                         let value = $coerce(array.value(i));
                         if value.len() != expected_len {
-                            let mut padded = vec![0u8; expected_len];
+                            // Reuse the padding buffer - clear and copy
+                            padding_buf.fill(0);
                             let copy_len = value.len().min(expected_len);
-                            padded[..copy_len].copy_from_slice(&value[..copy_len]);
-                            writer.put_slice(&padded);
+                            padding_buf[..copy_len].copy_from_slice(&value[..copy_len]);
+                            writer.put_slice(&padding_buf);
                         } else {
                             writer.put_slice(&value);
                         };

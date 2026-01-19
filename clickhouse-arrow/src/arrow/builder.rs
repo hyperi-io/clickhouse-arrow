@@ -284,6 +284,8 @@ impl TypedBuilder {
                 Enum16,
                 StringDictionaryBuilder::<Int16Type>::with_capacity(ROWS, p.len(), ROWS * p.len() * 4)
             ),
+            // DFE Fork: BFloat16 is stored as raw UInt16 bits
+            Type::BFloat16 => (UInt16, PrimitiveBuilder::<UInt16Type>::with_capacity(ROWS)),
         }))
     }
 }

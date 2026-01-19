@@ -438,6 +438,17 @@ impl FromStr for Type {
                     };
                     Type::DateTime64(precision, tz)
                 }
+                // DFE Fork: Time64 type with precision
+                "Time64" => {
+                    let (args, count) = parse_fixed_args::<1>(following)?;
+                    if count != 1 {
+                        return Err(Error::TypeParseError(format!(
+                            "Time64 expects 1 arg (precision), got {count}: {args:?}"
+                        )));
+                    }
+                    let precision = parse_precision(args[0])?;
+                    Type::Time64(precision)
+                }
                 "Enum8" => Type::Enum8(parse_enum_options!(following, i8)?),
                 "Enum16" => Type::Enum16(parse_enum_options!(following, i16)?),
                 "LowCardinality" => {
@@ -492,10 +503,8 @@ impl FromStr for Type {
                 // DFE Fork: New types
                 "Variant" => {
                     let args = parse_variable_args(following)?;
-                    let variants: Vec<Type> = args
-                        .into_iter()
-                        .map(Type::from_str)
-                        .collect::<Result<_, _>>()?;
+                    let variants: Vec<Type> =
+                        args.into_iter().map(Type::from_str).collect::<Result<_, _>>()?;
                     Type::Variant(variants)
                 }
                 "Dynamic" => {
@@ -509,16 +518,12 @@ impl FromStr for Type {
                             let arg = args[0].trim();
                             if let Some(n_str) = arg.strip_prefix("max_types=") {
                                 Some(n_str.parse().map_err(|e| {
-                                    Error::TypeParseError(format!(
-                                        "Invalid max_types value: {e}"
-                                    ))
+                                    Error::TypeParseError(format!("Invalid max_types value: {e}"))
                                 })?)
                             } else {
                                 // Just a number
                                 Some(arg.parse().map_err(|e| {
-                                    Error::TypeParseError(format!(
-                                        "Invalid Dynamic argument: {e}"
-                                    ))
+                                    Error::TypeParseError(format!("Invalid Dynamic argument: {e}"))
                                 })?)
                             }
                         } else {
@@ -587,6 +592,9 @@ impl FromStr for Type {
             "Object" | "Json" | "OBJECT" | "JSON" => Type::Object,
             // DFE Fork: Dynamic without parameters
             "Dynamic" => Type::Dynamic { max_types: None },
+            // DFE Fork: New simple types
+            "BFloat16" => Type::BFloat16,
+            "Time" => Type::Time,
             _ => {
                 return Err(Error::TypeParseError(format!("invalid type name: '{ident}'")));
             }

@@ -321,7 +321,9 @@ impl ClickHouseArrowDeserializer for Type {
             | Type::Decimal32(_)
             | Type::Decimal64(_)
             | Type::Decimal128(_)
-            | Type::Decimal256(_) =>
+            | Type::Decimal256(_)
+            // DFE Fork: BFloat16 is a 16-bit float stored as UInt16 raw bits
+            | Type::BFloat16 =>
                 primitive::deserialize_async(self, builder, reader, rows, nulls, rbuffer).await?,
             // String/Binary
             Type::String
@@ -390,7 +392,6 @@ impl ClickHouseArrowDeserializer for Type {
             Type::Variant(_)
             | Type::Dynamic { .. }
             | Type::Nested(_)
-            | Type::BFloat16
             | Type::Time
             | Type::Time64(_)
             | Type::AggregateFunction { .. }

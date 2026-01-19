@@ -50,6 +50,18 @@ All benchmarks run on Apple M2 Pro (12-core) with 16GB RAM using `ClickHouse` 25
 - **Throughput scales** linearly with dataset size
 - **Connection Pooling**, using the `pool` feature enables connection reuse for better throughput
 
+#### Internal Optimizations
+
+The serialization hot path includes SIMD-accelerated operations and memory pooling:
+
+| Operation | Improvement | Description |
+|-----------|-------------|-------------|
+| Null bitmap expansion | **~2.2x faster** | AVX2 SIMD on x86_64 for Arrow→ClickHouse null conversion |
+| Buffer allocation | **~21% faster** | Size-tiered buffer pool reduces allocator pressure |
+| Combined workload | **~1.48x faster** | Overall serialization improvement (10.2µs → 6.9µs for 10k rows) |
+
+These optimizations are applied automatically - no configuration needed.
+
 ### Running Benchmarks
 
 ```bash

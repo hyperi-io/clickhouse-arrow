@@ -106,10 +106,7 @@ mod tests {
 
     #[test]
     fn test_nested_to_array_tuple() {
-        let fields = vec![
-            ("a".to_string(), Type::UInt32),
-            ("b".to_string(), Type::String),
-        ];
+        let fields = vec![("a".to_string(), Type::UInt32), ("b".to_string(), Type::String)];
 
         let result = nested_to_array_tuple(&fields);
 

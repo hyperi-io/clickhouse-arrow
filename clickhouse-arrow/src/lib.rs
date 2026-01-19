@@ -186,14 +186,39 @@
 
 #![allow(unused_crate_dependencies)]
 
+// =============================================================================
+// ALLOCATOR CONFIGURATION
+// =============================================================================
+//
+// Alternative allocators can provide 10-25% performance improvement for OLAP
+// workloads. Enable via feature flags:
+//   - `jemalloc`: Best for servers with large allocations (recommended)
+//   - `mimalloc`: Good for mixed workloads, better security hardening
+//
+// Note: Only one allocator feature should be enabled at a time.
+
+#[cfg(all(feature = "jemalloc", not(feature = "mimalloc")))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(all(feature = "mimalloc", not(feature = "jemalloc")))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+// Compile-time check: prevent both allocators from being enabled
+#[cfg(all(feature = "jemalloc", feature = "mimalloc"))]
+compile_error!("Features `jemalloc` and `mimalloc` are mutually exclusive. Enable only one.");
+
 pub mod arrow;
 mod client;
 mod compression;
 mod constants;
 mod errors;
+pub mod explain;
 mod flags;
 mod formats;
 mod io;
+pub mod limits;
 pub mod native;
 #[cfg(feature = "pool")]
 mod pool;
@@ -201,6 +226,7 @@ pub mod prelude;
 mod query;
 mod schema;
 mod settings;
+pub mod simd;
 pub mod spawn;
 pub mod telemetry;
 #[cfg(any(feature = "test-utils", feature = "tmpfs-size"))]

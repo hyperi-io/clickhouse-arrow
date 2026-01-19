@@ -3,7 +3,12 @@ pub use tracing::{Instrument, Span, debug, error, info, instrument, trace, trace
 
 pub use crate::arrow::types::SchemaConversions;
 pub use crate::errors::*;
+pub use crate::explain::{
+    ExplainEstimateRow, ExplainFormat, ExplainMode, ExplainOperation, ExplainOptions,
+    ExplainResult, QueryOptions,
+};
 pub use crate::formats::{ArrowFormat, ClientFormat, NativeFormat};
+pub use crate::limits::{LimitedResponse, QueryLimits, QueryStats, TruncationReason};
 pub use crate::native::protocol::*;
 pub use crate::native::values::*;
 pub use crate::query::{ParamValue, ParsedQuery, Qid, QueryParams};

@@ -43,6 +43,13 @@ cloud = ["dep:ureq"]
 # Enable `rust_decimal` types for serialization and deserialization
 rust_decimal = ["dep:rust_decimal"]
 
+# -- Performance --
+# Use jemalloc allocator (recommended for servers with large allocations)
+# Benchmarks show 10-25% improvement for OLAP workloads
+jemalloc = ["dep:tikv-jemallocator"]
+# Use mimalloc allocator (good for mixed workloads, better security hardening)
+mimalloc = ["dep:mimalloc"]
+
 # -- Testing --
 test-utils = [
     "dep:testcontainers",
@@ -102,8 +109,10 @@ geo-types = { version = "0.7", optional = true }
 rust_decimal = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-testcontainers = { version = "0.26", optional = true }
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"], optional = true }
+testcontainers = { version = ">=0.26", optional = true }
+tikv-jemallocator = { version = ">=0.6", optional = true }
+mimalloc = { version = ">=0.1.48", optional = true }
+tracing-subscriber = { version = ">=0.3", features = ["fmt", "env-filter"], optional = true }
 ureq = { version = "3", features = ["rustls", "gzip", "json"], optional = true }
 
 [dev-dependencies]
@@ -134,6 +143,10 @@ required-features = ["test-utils", "derive"]
 
 [[test]]
 name = "e2e_compat"
+required-features = ["test-utils"]
+
+[[test]]
+name = "e2e_new_types"
 required-features = ["test-utils"]
 
 # EXAMPLES
@@ -184,3 +197,47 @@ required-features = ["test-utils"]
 name = "compression"
 harness = false
 required-features = ["test-utils"]
+
+[[bench]]
+name = "primitives"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "strings"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "arrays"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "batch_size"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "concurrency"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "low_cardinality"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "memory"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "simd_ab"
+harness = false
+
+
+[[bench]]
+name = "version_compare"
+harness = false

@@ -89,7 +89,6 @@ pub enum Value {
     Object(Vec<u8>),
 
     // === DFE Fork: New types for ClickHouse 24.x+ ===
-
     /// Variant value - discriminator (0-254) and boxed inner value
     /// Discriminator 255 (NULL_DISCRIMINATOR) is represented as Value::Null
     Variant(u8, Box<Value>),
@@ -99,7 +98,6 @@ pub enum Value {
     Dynamic(String, Box<Value>),
 
     // === DFE Fork: Additional types ===
-
     /// BFloat16 - Brain floating point (raw u16 bits)
     BFloat16(u16),
 
@@ -388,15 +386,12 @@ impl Value {
             Value::Time64(precision, _) => Type::Time64(*precision),
             Value::AggregateFunction(_) => {
                 // Can't guess the function name/types from opaque state
-                Type::AggregateFunction {
-                    name: String::new(),
-                    types: vec![],
-                }
+                Type::AggregateFunction { name: String::new(), types: vec![] }
             }
             Value::SimpleAggregateFunction(inner) => {
                 // Infer type from inner value
                 Type::SimpleAggregateFunction {
-                    name: String::new(),
+                    name:  String::new(),
                     types: vec![inner.guess_type()],
                 }
             }

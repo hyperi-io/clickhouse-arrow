@@ -19,11 +19,10 @@
 
 use tokio::io::AsyncWriteExt;
 
+use super::variant::NULL_DISCRIMINATOR;
 use super::{Serializer, SerializerState, Type};
 use crate::io::{ClickHouseBytesWrite, ClickHouseWrite};
 use crate::{Error, Result, Value};
-
-use super::variant::NULL_DISCRIMINATOR;
 
 /// Dynamic serialization version
 const SERIALIZATION_VERSION_V2: u64 = 1;
@@ -409,7 +408,7 @@ mod tests {
     fn test_infer_type_name() {
         assert_eq!(infer_type_name(&Value::Int64(42)), "Int64");
         assert_eq!(infer_type_name(&Value::String(vec![])), "String");
-        assert_eq!(infer_type_name(&Value::Float64(3.14)), "Float64");
+        assert_eq!(infer_type_name(&Value::Float64(3.125)), "Float64");
     }
 
     #[test]

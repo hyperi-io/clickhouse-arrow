@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Features
+
+- Add SIMD-accelerated null bitmap expansion for Arrow serialization
+  - ~2.2x speedup for null bitmap processing across all batch sizes
+  - AVX2 implementation for x86_64, with scalar fallback
+- Add buffer pooling for allocation reuse in hot paths
+  - Size-tiered pool with automatic buffer recycling
+  - ~21% improvement for 4KB allocations, ~5% for 64KB
+- Add query result limits (rows, batches, memory) for controlled resource usage
+- Add Variant/Dynamic/Nested/BFloat16 type support
+
+### Performance
+
+- Combined serialization workload: **~1.48x faster** (10.2µs → 6.9µs for 10k rows)
+- Null bitmap expansion: **~2.2x speedup** vs naive implementation
+- Buffer pool raw API: **~21% faster** than Vec allocation for typical buffer sizes
+
 ## [0.2.1] - 2025-12-14
 
 ### Bug Fixes

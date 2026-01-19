@@ -1,0 +1,18 @@
+# Nextest configuration for memory-constrained environments
+# This project uses testcontainers which spawn Docker containers
+
+[profile.default]
+# Limit test parallelism - each e2e test spins up a ClickHouse container (~500MB each)
+test-threads = 4
+# Fail fast to avoid wasting resources
+fail-fast = true
+
+[profile.ci]
+# CI can handle more parallelism but still be conservative
+test-threads = 6
+fail-fast = true
+
+[profile.low-memory]
+# For running alongside other projects
+test-threads = 2
+fail-fast = true

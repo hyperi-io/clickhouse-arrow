@@ -1,6 +1,8 @@
 pub mod arrow;
 pub mod compat;
+pub mod explain;
 pub mod native;
+pub mod new_types;
 pub mod params;
 
 use std::panic::AssertUnwindSafe;

@@ -63,3 +63,11 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# AI assistant work files - never commit (local only, public repo)
+ai/
+.claude/
+STATE.md
+TODO.md
+CLAUDE.md
+.envrc

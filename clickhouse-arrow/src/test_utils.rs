@@ -16,6 +16,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
 
 pub const ENDPOINT_ENV: &str = "CLICKHOUSE_ENDPOINT";
+pub const HOST_ENV: &str = "CLICKHOUSE_HOST";
 pub const VERSION_ENV: &str = "CLICKHOUSE_VERSION";
 pub const NATIVE_PORT_ENV: &str = "CLICKHOUSE_NATIVE_PORT";
 pub const HTTP_PORT_ENV: &str = "CLICKHOUSE_HTTP_PORT";
@@ -34,10 +35,92 @@ const CLICKHOUSE_NATIVE_PORT: u16 = 9000;
 const CLICKHOUSE_HTTP_PORT: u16 = 8123;
 const CLICKHOUSE_ENDPOINT: &str = "localhost";
 
+/// Check if external ClickHouse should be used instead of a container.
+///
+/// Returns `true` if `CLICKHOUSE_HOST` environment variable is set,
+/// which indicates the user wants to use an external ClickHouse instance.
+pub fn use_external_clickhouse() -> bool { env::var(HOST_ENV).is_ok_and(|v| !v.is_empty()) }
+
+/// Create a `ClickHouseContainer` from environment variables for external ClickHouse.
+///
+/// This is used when `CLICKHOUSE_HOST` is set to connect to an external
+/// ClickHouse instance instead of spinning up a testcontainer.
+fn create_external_container() -> ClickHouseContainer {
+    let endpoint = env::var(HOST_ENV)
+        .or_else(|_| env::var(ENDPOINT_ENV))
+        .unwrap_or_else(|_| CLICKHOUSE_ENDPOINT.to_string());
+    let native_port = env::var(NATIVE_PORT_ENV)
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(CLICKHOUSE_NATIVE_PORT);
+    let http_port = env::var(HTTP_PORT_ENV)
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(CLICKHOUSE_HTTP_PORT);
+    let user = env::var(USER_ENV).unwrap_or_else(|_| CLICKHOUSE_USER.into());
+    let password = env::var(PASSWORD_ENV).unwrap_or_else(|_| CLICKHOUSE_PASSWORD.into());
+    let url = format!("{endpoint}:{native_port}");
+
+    debug!(
+        endpoint = %endpoint,
+        native_port = %native_port,
+        http_port = %http_port,
+        user = %user,
+        "Using external ClickHouse instance"
+    );
+
+    ClickHouseContainer {
+        endpoint,
+        native_port,
+        http_port,
+        url,
+        user,
+        password,
+        container: RwLock::new(None), // No container to manage
+    }
+}
+
 pub static CONTAINER: OnceLock<Arc<ClickHouseContainer>> = OnceLock::new();
+
+/// Load environment variables from .env file if it exists.
+/// Only sets variables that aren't already set in the environment.
+fn load_dotenv() {
+    use std::io::BufRead;
+    static LOADED: OnceLock<()> = OnceLock::new();
+    LOADED.get_or_init(|| {
+        // Walk up from current dir to find .env
+        let mut dir = std::env::current_dir().ok();
+        while let Some(d) = dir {
+            let env_path = d.join(".env");
+            if env_path.exists() {
+                if let Ok(file) = std::fs::File::open(&env_path) {
+                    for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+                        let line = line.trim();
+                        if line.is_empty() || line.starts_with('#') {
+                            continue;
+                        }
+                        if let Some((key, value)) = line.split_once('=') {
+                            let key = key.trim();
+                            let value = value.trim().trim_matches('"');
+                            // Only set if not already in environment
+                            // SAFETY: This runs during test init, before any threads spawn
+                            if env::var(key).is_err() {
+                                unsafe { env::set_var(key, value) };
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            dir = d.parent().map(|p| p.to_path_buf());
+        }
+    });
+}
 
 /// Initialize tracing in a test setup
 pub fn init_tracing(directives: Option<&[(&str, &str)]>) {
+    // Load .env file first so CLICKHOUSE_HOST etc are available
+    load_dotenv();
     let rust_log = env::var("RUST_LOG").unwrap_or_default();
 
     let stdio_logger = tracing_subscriber::fmt::Layer::default()
@@ -94,62 +177,124 @@ pub fn get_filter(rust_log: &str, directives: Option<&[(&str, &str)]>) -> EnvFil
     filter
 }
 
+/// Get or create a ClickHouse connection for tests.
+///
+/// If `CLICKHOUSE_HOST` is set, connects to an external ClickHouse instance.
+/// Otherwise, spins up a testcontainer.
+///
+/// # Environment Variables
+/// - `CLICKHOUSE_HOST`: External ClickHouse hostname (skips container creation)
+/// - `CLICKHOUSE_NATIVE_PORT`: Native protocol port (default: 9000)
+/// - `CLICKHOUSE_HTTP_PORT`: HTTP port (default: 8123)
+/// - `CLICKHOUSE_USER`: Username (default: "clickhouse")
+/// - `CLICKHOUSE_PASSWORD`: Password (default: "clickhouse")
+///
 /// # Panics
-/// You bet it panics. Better be careful.
+/// Panics if container creation fails (when not using external ClickHouse).
 pub async fn get_or_create_container(conf: Option<&str>) -> &'static Arc<ClickHouseContainer> {
     if let Some(c) = CONTAINER.get() {
-        c
-    } else {
-        let ch = ClickHouseContainer::try_new(conf)
-            .await
-            .expect("Failed to initialize ClickHouse container");
-        CONTAINER.get_or_init(|| Arc::new(ch))
+        return c;
+    }
+
+    // Check for external ClickHouse first
+    if use_external_clickhouse() {
+        return CONTAINER.get_or_init(|| Arc::new(create_external_container()));
+    }
+
+    // Fall back to testcontainer
+    let ch = ClickHouseContainer::try_new(conf)
+        .await
+        .expect("Failed to initialize ClickHouse container");
+    CONTAINER.get_or_init(|| Arc::new(ch))
+}
+
+/// Verify an external ClickHouse instance is reachable.
+/// Returns true if connection succeeds, false otherwise.
+async fn verify_external_clickhouse(container: &ClickHouseContainer) -> bool {
+    use tokio::net::TcpStream;
+    use tokio::time::timeout;
+
+    let addr = format!("{}:{}", container.endpoint, container.native_port);
+    match timeout(Duration::from_secs(5), TcpStream::connect(&addr)).await {
+        Ok(Ok(_)) => {
+            debug!("External ClickHouse verified at {addr}");
+            true
+        }
+        Ok(Err(e)) => {
+            debug!("External ClickHouse connection failed: {e}");
+            false
+        }
+        Err(_) => {
+            debug!("External ClickHouse connection timed out");
+            false
+        }
     }
 }
 
+/// Create a new ClickHouse connection.
+///
+/// If `CLICKHOUSE_HOST` is set and the instance is reachable, connects to it.
+/// Otherwise, falls back to spinning up a testcontainer.
+///
 /// # Panics
-/// You bet it panics. Better be careful.
+/// Panics if container creation fails (when not using external ClickHouse).
 pub async fn create_container(conf: Option<&str>) -> Arc<ClickHouseContainer> {
+    // Try external ClickHouse first if configured
+    if use_external_clickhouse() {
+        let external = create_external_container();
+        if verify_external_clickhouse(&external).await {
+            return Arc::new(external);
+        }
+        debug!("External ClickHouse unavailable, falling back to container");
+    }
+
     let ch = ClickHouseContainer::try_new(conf)
         .await
         .expect("Failed to initialize ClickHouse container");
     Arc::new(ch)
 }
 
-/// Get or create a `ClickHouse` container with optional tmpfs mounts for benchmarks
+/// Get or create a `ClickHouse` connection for benchmarks.
 ///
-/// Similar to `get_or_create_container` but can enable tmpfs for zero disk I/O
-/// by setting the `USE_TMPFS` environment variable to "true" or "1".
-///
-/// Without tmpfs, data is written to disk with normal Docker volume behavior.
-/// With tmpfs enabled, data is stored in RAM for maximum performance.
+/// If `CLICKHOUSE_HOST` is set, connects to an external ClickHouse instance.
+/// Otherwise, spins up a testcontainer with optional tmpfs for zero disk I/O.
 ///
 /// # Environment Variables
-/// - `USE_TMPFS`: Set to "true" or "1" to enable tmpfs mounts (default: false)
+/// - `CLICKHOUSE_HOST`: External ClickHouse hostname (skips container creation)
+/// - `CLICKHOUSE_NATIVE_PORT`: Native protocol port (default: 9000)
+/// - `CLICKHOUSE_HTTP_PORT`: HTTP port (default: 8123)
+/// - `CLICKHOUSE_USER`: Username (default: "clickhouse")
+/// - `CLICKHOUSE_PASSWORD`: Password (default: "clickhouse")
+/// - `USE_TMPFS`: Set to "true" or "1" to enable tmpfs mounts (default: false, ignored for
+///   external)
 ///
 /// # Panics
-/// Panics if the container fails to start
+/// Panics if the container fails to start (when not using external ClickHouse).
 pub async fn get_or_create_benchmark_container(conf: Option<&str>) -> &'static ClickHouseContainer {
     static BENCHMARK_CONTAINER: OnceLock<Arc<ClickHouseContainer>> = OnceLock::new();
 
     if let Some(c) = BENCHMARK_CONTAINER.get() {
-        c
-    } else {
-        // Check if tmpfs should be enabled (default: false)
-        let use_tmpfs =
-            env::var(USE_TMPFS_ENV).is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1");
-
-        let mut builder =
-            ClickHouseContainer::builder().with_config(conf.unwrap_or("config.xml").to_string());
-
-        if use_tmpfs {
-            builder = builder.with_tmpfs();
-        }
-
-        let ch =
-            builder.build().await.expect("Failed to initialize ClickHouse benchmark container");
-        BENCHMARK_CONTAINER.get_or_init(|| Arc::new(ch))
+        return c;
     }
+
+    // Check for external ClickHouse first
+    if use_external_clickhouse() {
+        return BENCHMARK_CONTAINER.get_or_init(|| Arc::new(create_external_container()));
+    }
+
+    // Fall back to testcontainer with optional tmpfs
+    let use_tmpfs =
+        env::var(USE_TMPFS_ENV).is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1");
+
+    let mut builder =
+        ClickHouseContainer::builder().with_config(conf.unwrap_or("config.xml").to_string());
+
+    if use_tmpfs {
+        builder = builder.with_tmpfs();
+    }
+
+    let ch = builder.build().await.expect("Failed to initialize ClickHouse benchmark container");
+    BENCHMARK_CONTAINER.get_or_init(|| Arc::new(ch))
 }
 
 /// Builder for `ClickHouseContainer` with configurable options
@@ -324,7 +469,13 @@ impl ClickHouseContainer {
 
     pub fn get_http_port(&self) -> u16 { self.http_port }
 
+    /// Returns `true` if this is an external ClickHouse connection (not a container).
+    pub async fn is_external(&self) -> bool { self.container.read().await.is_none() }
+
+    /// Shutdown the container (no-op for external connections).
+    ///
     /// # Errors
+    /// Returns error if container shutdown fails (only applicable for testcontainers).
     pub async fn shutdown(&self) -> Result<(), TestcontainersError> {
         let mut container = self.container.write().await;
         if let Some(container) = container.take() {
@@ -1334,5 +1485,100 @@ mod container_tests {
         // Test with same config - should return same instance (static)
         let container2 = get_or_create_benchmark_container(None).await;
         assert_eq!(container1.http_port, container2.http_port);
+    }
+
+    #[test]
+    fn test_use_external_clickhouse_unset() {
+        // When CLICKHOUSE_HOST is not set, should return false
+        // Note: This test assumes the env var is not set in the test environment
+        // If it IS set, we temporarily unset it
+        let original = env::var(HOST_ENV).ok();
+        // SAFETY: Tests run single-threaded (--test-threads=1), no concurrent env access
+        unsafe { env::remove_var(HOST_ENV) };
+
+        assert!(!use_external_clickhouse());
+
+        // Restore original value if it was set
+        if let Some(val) = original {
+            // SAFETY: Tests run single-threaded
+            unsafe { env::set_var(HOST_ENV, val) };
+        }
+    }
+
+    #[test]
+    fn test_use_external_clickhouse_set() {
+        let original = env::var(HOST_ENV).ok();
+
+        // SAFETY: Tests run single-threaded (--test-threads=1), no concurrent env access
+        unsafe { env::set_var(HOST_ENV, "test.clickhouse.host") };
+        assert!(use_external_clickhouse());
+
+        // Test empty string returns false
+        unsafe { env::set_var(HOST_ENV, "") };
+        assert!(!use_external_clickhouse());
+
+        // Restore original value
+        if let Some(val) = original {
+            unsafe { env::set_var(HOST_ENV, val) };
+        } else {
+            unsafe { env::remove_var(HOST_ENV) };
+        }
+    }
+
+    #[test]
+    fn test_create_external_container() {
+        let original_host = env::var(HOST_ENV).ok();
+        let original_port = env::var(NATIVE_PORT_ENV).ok();
+        let original_http = env::var(HTTP_PORT_ENV).ok();
+        let original_user = env::var(USER_ENV).ok();
+        let original_pass = env::var(PASSWORD_ENV).ok();
+
+        // SAFETY: Tests run single-threaded (--test-threads=1), no concurrent env access
+        unsafe {
+            env::set_var(HOST_ENV, "my.external.host");
+            env::set_var(NATIVE_PORT_ENV, "9001");
+            env::set_var(HTTP_PORT_ENV, "8124");
+            env::set_var(USER_ENV, "testuser");
+            env::set_var(PASSWORD_ENV, "testpass");
+        }
+
+        let container = create_external_container();
+
+        assert_eq!(container.endpoint, "my.external.host");
+        assert_eq!(container.native_port, 9001);
+        assert_eq!(container.http_port, 8124);
+        assert_eq!(container.user, "testuser");
+        assert_eq!(container.password, "testpass");
+        assert_eq!(container.url, "my.external.host:9001");
+
+        // SAFETY: Tests run single-threaded
+        unsafe {
+            // Restore original values
+            if let Some(val) = original_host {
+                env::set_var(HOST_ENV, val);
+            } else {
+                env::remove_var(HOST_ENV);
+            }
+            if let Some(val) = original_port {
+                env::set_var(NATIVE_PORT_ENV, val);
+            } else {
+                env::remove_var(NATIVE_PORT_ENV);
+            }
+            if let Some(val) = original_http {
+                env::set_var(HTTP_PORT_ENV, val);
+            } else {
+                env::remove_var(HTTP_PORT_ENV);
+            }
+            if let Some(val) = original_user {
+                env::set_var(USER_ENV, val);
+            } else {
+                env::remove_var(USER_ENV);
+            }
+            if let Some(val) = original_pass {
+                env::set_var(PASSWORD_ENV, val);
+            } else {
+                env::remove_var(PASSWORD_ENV);
+            }
+        }
     }
 }

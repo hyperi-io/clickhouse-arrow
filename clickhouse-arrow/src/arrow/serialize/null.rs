@@ -1,4 +1,4 @@
-/// Serialization logic for nullability bitmaps in `ClickHouse`’s native format.
+/// Serialization logic for nullability bitmaps in `ClickHouse`'s native format.
 ///
 /// This module provides a function to serialize nullability bitmaps for Arrow arrays, used by
 /// the `ClickHouseArrowSerializer` implementation in `types.rs` for nullable types. It writes
@@ -7,6 +7,12 @@
 ///
 /// The `write_nullability` function handles arrays with or without a null buffer, writing the
 /// appropriate bitmap before serializing the inner values.
+///
+/// # Performance
+///
+/// This module uses SIMD-accelerated bit expansion on supported platforms (x86_64 with AVX2,
+/// aarch64 with NEON) for significantly improved performance when processing large arrays.
+/// A buffer pool is used to avoid repeated allocations in hot paths.
 ///
 /// # Examples
 /// ```rust,ignore
@@ -24,6 +30,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::formats::SerializerState;
 use crate::io::{ClickHouseBytesWrite, ClickHouseWrite};
+use crate::simd::{PooledBuffer, expand_null_bitmap};
 use crate::{Result, Type};
 
 /// Serializes the nullability bitmap for an Arrow array to `ClickHouse`’s native format.
@@ -51,17 +58,27 @@ pub(super) async fn serialize_nulls_async<W: ClickHouseWrite>(
         return Ok(());
     }
 
-    // Write null bitmap
-    if let Some(null_buffer) = array.nulls() {
-        let mut null_mask = vec![1_u8; array.len()]; // Initialize with all NULLs (1 in ClickHouse)
-        for valid_idx in null_buffer.valid_indices() {
-            null_mask[valid_idx] = 0; // Set to 0 for non-NULL values
-        }
-        writer.write_all(&null_mask).await?;
-    } else {
-        let nulls = vec![0_u8; array.len()];
-        writer.write_all(&nulls).await?;
+    let len = array.len();
+    if len == 0 {
+        return Ok(());
     }
+
+    // Use pooled buffer to avoid repeated allocations
+    let mut null_mask = PooledBuffer::with_capacity(len);
+    null_mask.resize(len, 0);
+
+    // Write null bitmap using SIMD-accelerated expansion
+    if let Some(null_buffer) = array.nulls() {
+        // Get the packed bitmap bytes from Arrow
+        let bitmap_bytes = null_buffer.validity();
+        // SIMD-accelerated expansion: Arrow packed bits -> CH bytes
+        // Arrow: bit=1 means valid, bit=0 means null
+        // ClickHouse: byte=0 means valid, byte=1 means null
+        expand_null_bitmap(bitmap_bytes, &mut null_mask, len);
+    }
+    // else: null_mask is already all zeros (all valid)
+
+    writer.write_all(&null_mask).await?;
 
     Ok(())
 }
@@ -76,17 +93,25 @@ pub(super) fn serialize_nulls<W: ClickHouseBytesWrite>(
         return;
     }
 
-    // Write null bitmap
-    if let Some(null_buffer) = array.nulls() {
-        let mut null_mask = vec![1_u8; array.len()]; // Initialize with all NULLs (1 in ClickHouse)
-        for valid_idx in null_buffer.valid_indices() {
-            null_mask[valid_idx] = 0; // Set to 0 for non-NULL values
-        }
-        writer.put_slice(&null_mask);
-    } else {
-        let nulls = vec![0_u8; array.len()];
-        writer.put_slice(&nulls);
+    let len = array.len();
+    if len == 0 {
+        return;
     }
+
+    // Use pooled buffer to avoid repeated allocations
+    let mut null_mask = PooledBuffer::with_capacity(len);
+    null_mask.resize(len, 0);
+
+    // Write null bitmap using SIMD-accelerated expansion
+    if let Some(null_buffer) = array.nulls() {
+        // Get the packed bitmap bytes from Arrow
+        let bitmap_bytes = null_buffer.validity();
+        // SIMD-accelerated expansion: Arrow packed bits -> CH bytes
+        expand_null_bitmap(bitmap_bytes, &mut null_mask, len);
+    }
+    // else: null_mask is already all zeros (all valid)
+
+    writer.put_slice(&null_mask);
 }
 
 #[cfg(test)]

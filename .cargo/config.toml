@@ -1,5 +1,18 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]
+# Limit parallel compilation jobs to reduce memory usage
+# Conservative default for multi-project workloads
+jobs = 4
 
 [target.'cfg(all())']
 rustflags = ["-C", "target-cpu=native"]
+
+# Reduce codegen units to lower peak memory during linking
+[profile.dev]
+codegen-units = 4
+
+[profile.test]
+codegen-units = 4
+
+[profile.release]
+codegen-units = 8
