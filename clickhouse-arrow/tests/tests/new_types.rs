@@ -46,9 +46,7 @@ async fn query_all(client: &ArrowClient, query: &str, qid: Qid) -> Vec<RecordBat
 }
 
 /// Count total rows across all batches
-fn count_rows(batches: &[RecordBatch]) -> usize {
-    batches.iter().map(|b| b.num_rows()).sum()
-}
+fn count_rows(batches: &[RecordBatch]) -> usize { batches.iter().map(|b| b.num_rows()).sum() }
 
 // =============================================================================
 // BFloat16 Tests
@@ -157,7 +155,8 @@ pub async fn test_variant_basic(ch: Arc<ClickHouseContainer>) {
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    // Query type info (avoiding Variant column direct read until Arrow Union builder is implemented)
+    // Query type info (avoiding Variant column direct read until Arrow Union builder is
+    // implemented)
     header(qid, "Querying Variant type info");
     let query = format!("SELECT id, variantType(var_col) as vtype FROM {db}.{table} ORDER BY id");
     let batches = query_all(&client, &query, qid).await;
@@ -378,7 +377,8 @@ pub async fn test_nested_basic(ch: Arc<ClickHouseContainer>) {
     header(qid, "Inserting Nested test data");
     let insert_sql = format!(
         "INSERT INTO {db}.{table} VALUES
-        (1, ['click', 'view', 'purchase'], ['2024-01-01 00:00:00', '2024-01-01 00:01:00', '2024-01-01 00:02:00'], [1.0, 2.0, 99.99]),
+        (1, ['click', 'view', 'purchase'], ['2024-01-01 00:00:00', '2024-01-01 00:01:00', \
+         '2024-01-01 00:02:00'], [1.0, 2.0, 99.99]),
         (2, ['login'], ['2024-01-02 12:00:00'], [0.0]),
         (3, [], [], [])"
     );
@@ -497,7 +497,8 @@ pub async fn test_time_simulation(ch: Arc<ClickHouseContainer>) {
     // Query with time formatting
     header(qid, "Querying time data with formatting");
     let query = format!(
-        "SELECT id, time_seconds, formatDateTime(toDateTime(time_seconds), '%H:%M:%S') as formatted
+        "SELECT id, time_seconds, formatDateTime(toDateTime(time_seconds), '%H:%M:%S') as \
+         formatted
          FROM {db}.{table} ORDER BY id"
     );
     let batches = query_all(&client, &query, qid).await;
