@@ -3,6 +3,18 @@
 //! These benchmarks isolate the critical path performance of individual type
 //! operations to enable targeted optimization.
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts are safe for test data sizes
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
+#![allow(clippy::explicit_iter_loop)]
+// Benchmark functions are necessarily long to set up test infrastructure
+#![allow(clippy::too_many_lines)]
+// Helper functions reserved for future benchmark variants
+#![allow(dead_code)]
 
 mod common;
 

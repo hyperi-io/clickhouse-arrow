@@ -3,6 +3,13 @@
 //! Tests performance across different string length distributions which is
 //! critical for real-world workloads.
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts are safe for test data sizes
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
 
 mod common;
 
@@ -98,7 +105,8 @@ fn create_binary_batch(rows: usize, binary_len: usize, num_cols: usize) -> Recor
     RecordBatch::try_new(schema, columns).unwrap()
 }
 
-/// Create a batch with LargeUtf8 (for strings > 2GB total)
+/// Create a batch with `LargeUtf8` (for strings > 2GB total)
+#[allow(dead_code)] // Reserved for future large string benchmarks
 fn create_large_string_batch(rows: usize, string_len: usize, num_cols: usize) -> RecordBatch {
     let fields: Vec<Field> = (0..num_cols)
         .map(|i| Field::new(format!("lstr_{i}"), DataType::LargeUtf8, false))
@@ -210,7 +218,7 @@ fn bench_variable_string_insert(c: &mut Criterion) {
             let batch = create_variable_string_batch(rows, min_len, max_len, num_cols);
 
             // Estimate average bytes
-            let avg_len = (min_len + max_len) / 2;
+            let avg_len = usize::midpoint(min_len, max_len);
             let total_bytes = rows * avg_len * num_cols;
 
             let table = rt

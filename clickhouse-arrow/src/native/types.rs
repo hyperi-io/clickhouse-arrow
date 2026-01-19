@@ -1,3 +1,8 @@
+// Type matching uses identical bodies for related types (e.g., Int64/Decimal64)
+#![allow(clippy::match_same_arms)]
+// Complex type parsing function is well-documented despite length
+#![allow(clippy::too_many_lines)]
+
 pub(crate) mod deserialize;
 pub mod geo;
 pub(crate) mod low_cardinality;
@@ -86,11 +91,11 @@ pub enum Type {
 
     // === DFE Fork: New types for ClickHouse 24.x+ ===
     /// Variant type - discriminated union of types
-    /// Example: Variant(String, UInt64, Array(String))
+    /// Example: Variant(String, `UInt64`, Array(String))
     Variant(Vec<Type>),
 
     /// Dynamic type - can hold any type, types discovered at runtime
-    /// max_types parameter limits separate storage columns (default 32)
+    /// `max_types` parameter limits separate storage columns (default 32)
     Dynamic {
         max_types: Option<usize>,
     },
@@ -99,12 +104,12 @@ pub enum Type {
     /// Stored as parallel arrays internally
     Nested(Vec<(String, Type)>),
 
-    /// BFloat16 - Brain floating point (ML workloads)
+    /// `BFloat16` - Brain floating point (ML workloads)
     /// 16-bit floating point with 8-bit exponent, 7-bit mantissa
     BFloat16,
 
     /// Time - time of day (00:00:00 to 23:59:59)
-    /// Stored as seconds since midnight (UInt32)
+    /// Stored as seconds since midnight (`UInt32`)
     Time,
 
     /// Time64 - high precision time of day
@@ -112,7 +117,7 @@ pub enum Type {
     /// Precision: 0=seconds, 3=milliseconds, 6=microseconds, 9=nanoseconds
     Time64(usize),
 
-    /// AggregateFunction - intermediate state of an aggregate function
+    /// `AggregateFunction` - intermediate state of an aggregate function
     /// name: function name (e.g., "sum", "avg", "uniq")
     /// types: argument types
     AggregateFunction {
@@ -120,7 +125,7 @@ pub enum Type {
         types: Vec<Type>,
     },
 
-    /// SimpleAggregateFunction - simplified aggregate state
+    /// `SimpleAggregateFunction` - simplified aggregate state
     /// Used for simple aggregates that can be combined with simple operations
     SimpleAggregateFunction {
         name:  String,

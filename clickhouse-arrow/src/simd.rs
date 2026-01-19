@@ -5,13 +5,13 @@
 //!
 //! # Architecture Support
 //!
-//! - **x86_64**: Uses AVX2/SSE2 intrinsics when available
+//! - **`x86_64`**: Uses AVX2/SSE2 intrinsics when available
 //! - **aarch64**: Uses NEON intrinsics when available (placeholder, currently scalar)
 //! - **Fallback**: Scalar implementations for other platforms
 //!
 //! # Performance
 //!
-//! Benchmarked on x86_64 with AVX2 (AMD Ryzen / Intel Core):
+//! Benchmarked on `x86_64` with AVX2 (AMD Ryzen / Intel Core):
 //!
 //! | Operation | vs Naive | vs Unrolled Scalar |
 //! |-----------|----------|-------------------|
@@ -21,7 +21,7 @@
 //!
 //! Buffer pool performance (10 iterations per measurement):
 //!
-//! | Buffer Size | Pool Raw vs Vec::new |
+//! | Buffer Size | Pool Raw vs `Vec::new` |
 //! |-------------|---------------------|
 //! | 4 KB | **~21% faster** |
 //! | 64 KB | **~5% faster** |
@@ -58,13 +58,13 @@
 /// Expands a packed null bitmap (1 bit per value) to byte mask (1 byte per value).
 ///
 /// Arrow stores nulls as a packed bitmap where bit 0 = null, bit 1 = valid.
-/// ClickHouse expects a byte array where 0 = valid, 1 = null.
+/// `ClickHouse` expects a byte array where 0 = valid, 1 = null.
 ///
 /// This function inverts and expands simultaneously for maximum efficiency.
 ///
 /// # Arguments
 /// * `bitmap` - Packed bitmap bytes (Arrow format: 1 = valid, 0 = null)
-/// * `output` - Output buffer for expanded bytes (ClickHouse format: 0 = valid, 1 = null)
+/// * `output` - Output buffer for expanded bytes (`ClickHouse` format: 0 = valid, 1 = null)
 /// * `len` - Number of values to expand (not bitmap bytes!)
 ///
 /// # Safety
@@ -72,7 +72,7 @@
 #[inline]
 pub fn expand_null_bitmap(bitmap: &[u8], output: &mut [u8], len: usize) {
     debug_assert!(output.len() >= len);
-    debug_assert!(bitmap.len() >= (len + 7) / 8);
+    debug_assert!(bitmap.len() >= len.div_ceil(8));
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     {
@@ -117,14 +117,14 @@ fn expand_null_bitmap_scalar(bitmap: &[u8], output: &mut [u8], len: usize) {
     for (byte_idx, &byte) in bitmap.iter().take(full_bytes).enumerate() {
         let base = byte_idx * 8;
         // Unrolled loop for 8 bits - invert since Arrow: 1=valid, CH: 0=valid
-        output[base] = ((byte & 0x01) == 0) as u8;
-        output[base + 1] = ((byte & 0x02) == 0) as u8;
-        output[base + 2] = ((byte & 0x04) == 0) as u8;
-        output[base + 3] = ((byte & 0x08) == 0) as u8;
-        output[base + 4] = ((byte & 0x10) == 0) as u8;
-        output[base + 5] = ((byte & 0x20) == 0) as u8;
-        output[base + 6] = ((byte & 0x40) == 0) as u8;
-        output[base + 7] = ((byte & 0x80) == 0) as u8;
+        output[base] = u8::from((byte & 0x01) == 0);
+        output[base + 1] = u8::from((byte & 0x02) == 0);
+        output[base + 2] = u8::from((byte & 0x04) == 0);
+        output[base + 3] = u8::from((byte & 0x08) == 0);
+        output[base + 4] = u8::from((byte & 0x10) == 0);
+        output[base + 5] = u8::from((byte & 0x20) == 0);
+        output[base + 6] = u8::from((byte & 0x40) == 0);
+        output[base + 7] = u8::from((byte & 0x80) == 0);
     }
 
     // Handle remainder
@@ -132,7 +132,7 @@ fn expand_null_bitmap_scalar(bitmap: &[u8], output: &mut [u8], len: usize) {
         let byte = bitmap[full_bytes];
         let base = full_bytes * 8;
         for bit in 0..remainder {
-            output[base + bit] = ((byte & (1 << bit)) == 0) as u8;
+            output[base + bit] = u8::from((byte & (1 << bit)) == 0);
         }
     }
 }
@@ -183,19 +183,20 @@ unsafe fn expand_null_bitmap_avx2(bitmap: &[u8], output: &mut [u8], len: usize) 
 }
 
 /// Expand a single byte to 8 output bytes without bounds checking.
+#[allow(clippy::inline_always)] // Hot path in SIMD expansion loop - inlining is critical
 #[inline(always)]
 unsafe fn expand_byte_to_8_unchecked(byte: u8, output: &mut [u8], offset: usize) {
     // SAFETY: Caller guarantees output has sufficient length
     unsafe {
         // Invert: Arrow 1=valid -> CH 0=valid
-        *output.get_unchecked_mut(offset) = ((byte & 0x01) == 0) as u8;
-        *output.get_unchecked_mut(offset + 1) = ((byte & 0x02) == 0) as u8;
-        *output.get_unchecked_mut(offset + 2) = ((byte & 0x04) == 0) as u8;
-        *output.get_unchecked_mut(offset + 3) = ((byte & 0x08) == 0) as u8;
-        *output.get_unchecked_mut(offset + 4) = ((byte & 0x10) == 0) as u8;
-        *output.get_unchecked_mut(offset + 5) = ((byte & 0x20) == 0) as u8;
-        *output.get_unchecked_mut(offset + 6) = ((byte & 0x40) == 0) as u8;
-        *output.get_unchecked_mut(offset + 7) = ((byte & 0x80) == 0) as u8;
+        *output.get_unchecked_mut(offset) = u8::from((byte & 0x01) == 0);
+        *output.get_unchecked_mut(offset + 1) = u8::from((byte & 0x02) == 0);
+        *output.get_unchecked_mut(offset + 2) = u8::from((byte & 0x04) == 0);
+        *output.get_unchecked_mut(offset + 3) = u8::from((byte & 0x08) == 0);
+        *output.get_unchecked_mut(offset + 4) = u8::from((byte & 0x10) == 0);
+        *output.get_unchecked_mut(offset + 5) = u8::from((byte & 0x20) == 0);
+        *output.get_unchecked_mut(offset + 6) = u8::from((byte & 0x40) == 0);
+        *output.get_unchecked_mut(offset + 7) = u8::from((byte & 0x80) == 0);
     }
 }
 
@@ -270,6 +271,7 @@ pub const MAX_VARINT_LEN: usize = 10;
 /// # Safety
 /// Buffer must have at least `MAX_VARINT_LEN` bytes available.
 #[inline]
+#[allow(clippy::cast_possible_truncation)] // Intentional: extracting low 7 bits per varint spec
 pub fn encode_varint(mut value: u64, buf: &mut [u8; MAX_VARINT_LEN]) -> usize {
     let mut pos = 0;
 
@@ -296,15 +298,15 @@ pub fn decode_varint(buf: &[u8]) -> Option<(u64, usize)> {
 
     // Fast path for single-byte varints (very common for small lengths)
     if buf[0] < 0x80 {
-        return Some((buf[0] as u64, 1));
+        return Some((u64::from(buf[0]), 1));
     }
 
     // Multi-byte path
-    let mut result = (buf[0] & 0x7F) as u64;
+    let mut result = u64::from(buf[0] & 0x7F);
     let mut shift = 7;
 
     for (i, &byte) in buf.iter().enumerate().skip(1).take(9) {
-        result |= ((byte & 0x7F) as u64) << shift;
+        result |= u64::from(byte & 0x7F) << shift;
         if byte < 0x80 {
             return Some((result, i + 1));
         }
@@ -374,9 +376,9 @@ pub fn swap_bytes_u64_slice(data: &mut [u64]) {
 // UUID BYTE SWAPPING
 // ============================================================================
 
-/// Swap the halves of a UUID for ClickHouse format.
+/// Swap the halves of a UUID for `ClickHouse` format.
 ///
-/// ClickHouse stores UUIDs with the high 8 bytes first, then low 8 bytes.
+/// `ClickHouse` stores UUIDs with the high 8 bytes first, then low 8 bytes.
 /// Arrow/standard format has low bytes first, then high bytes.
 /// This function swaps the two halves in-place.
 ///
@@ -390,7 +392,7 @@ pub fn swap_uuid_halves(uuid: &mut [u8; 16]) {
     low.swap_with_slice(high);
 }
 
-/// Convert a UUID from Arrow format to ClickHouse format.
+/// Convert a UUID from Arrow format to `ClickHouse` format.
 ///
 /// Returns a new 16-byte array with halves swapped.
 #[inline]
@@ -401,7 +403,7 @@ pub fn uuid_to_clickhouse(uuid: &[u8; 16]) -> [u8; 16] {
     result
 }
 
-/// Convert a UUID slice to ClickHouse format.
+/// Convert a UUID slice to `ClickHouse` format.
 ///
 /// Returns a new 16-byte array with halves swapped.
 /// Returns None if the slice is not exactly 16 bytes.
@@ -436,7 +438,7 @@ use parking_lot::Mutex;
 /// - **Small**: 4KB - Common serialization buffer size
 /// - **Medium**: 64KB - Typical batch serialization
 /// - **Large**: 1MB - Large batch processing
-/// - **XLarge**: >1MB - Very large batches (power-of-2 sizing)
+/// - **`XLarge`**: >1MB - Very large batches (power-of-2 sizing)
 ///
 /// Benchmarks show ~21% improvement for 4KB buffers, ~5% for 64KB.
 pub struct BufferPool {
@@ -590,14 +592,23 @@ impl PooledBuffer {
     pub fn with_capacity(capacity: usize) -> Self { Self { buf: Some(BUFFER_POOL.get(capacity)) } }
 
     /// Get mutable access to the underlying buffer.
+    ///
+    /// # Panics
+    /// Panics if the buffer has been taken via `take()`.
     #[inline]
-    pub fn as_mut(&mut self) -> &mut Vec<u8> { self.buf.as_mut().unwrap() }
+    pub fn buffer_mut(&mut self) -> &mut Vec<u8> { self.buf.as_mut().unwrap() }
 
     /// Get immutable access to the underlying buffer.
+    ///
+    /// # Panics
+    /// Panics if the buffer has been taken via `take()`.
     #[inline]
-    pub fn as_ref(&self) -> &Vec<u8> { self.buf.as_ref().unwrap() }
+    pub fn buffer(&self) -> &Vec<u8> { self.buf.as_ref().unwrap() }
 
     /// Take ownership of the buffer (won't be returned to pool).
+    ///
+    /// # Panics
+    /// Panics if the buffer has already been taken.
     #[inline]
     pub fn take(mut self) -> Vec<u8> { self.buf.take().unwrap() }
 }
@@ -661,7 +672,7 @@ mod tests {
     #[test]
     fn test_expand_null_bitmap_partial() {
         // Only process 5 values from a byte
-        let bitmap = [0b00011111]; // First 5 bits set
+        let bitmap = [0b0001_1111]; // First 5 bits set
         let mut output = [0xFFu8; 5];
         expand_null_bitmap(&bitmap, &mut output, 5);
         // All 5 are valid (bit set) -> 0 in CH
@@ -726,16 +737,16 @@ mod tests {
 
     #[test]
     fn test_byte_swap_u32() {
-        let mut data = vec![0x01020304u32, 0x05060708, 0x090A0B0C];
+        let mut data = vec![0x0102_0304_u32, 0x0506_0708, 0x090A_0B0C];
         swap_bytes_u32_slice(&mut data);
-        assert_eq!(data, [0x04030201, 0x08070605, 0x0C0B0A09]);
+        assert_eq!(data, [0x0403_0201, 0x0807_0605, 0x0C0B_0A09]);
     }
 
     #[test]
     fn test_byte_swap_u64() {
-        let mut data = vec![0x0102030405060708u64];
+        let mut data = vec![0x0102_0304_0506_0708_u64];
         swap_bytes_u64_slice(&mut data);
-        assert_eq!(data, [0x0807060504030201]);
+        assert_eq!(data, [0x0807_0605_0403_0201]);
     }
 
     #[test]

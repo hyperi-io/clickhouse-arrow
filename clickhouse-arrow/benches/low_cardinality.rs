@@ -1,11 +1,18 @@
-//! Benchmarks for LowCardinality (Dictionary) type operations.
+//! Benchmarks for `LowCardinality` (Dictionary) type operations.
 //!
 //! Tests performance of dictionary encoding/decoding with varying:
 //! - Dictionary sizes (cardinality)
-//! - Key types (UInt8, UInt16, UInt32)
+//! - Key types (`UInt8`, `UInt16`, `UInt32`)
 //! - Value types (String, Binary)
 //! - Row counts
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts are safe for test data sizes
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
 
 mod common;
 
@@ -26,10 +33,10 @@ use tokio::runtime::Runtime;
 use self::common::{DISABLE_CLEANUP_ENV, TEST_DB_NAME, init, print_msg};
 
 /// Dictionary sizes (cardinalities) to test
-/// These map to different key widths in ClickHouse:
-/// - 10, 100: UInt8 (0-255)
-/// - 1000: UInt16 (256-65535)
-/// - 100_000: UInt32 (65536+)
+/// These map to different key widths in `ClickHouse`:
+/// - 10, 100: `UInt8` (0-255)
+/// - 1000: `UInt16` (256-65535)
+/// - `100_000`: `UInt32` (65536+)
 const CARDINALITIES: &[usize] = &[10, 100, 1000, 100_000];
 
 /// String lengths for dictionary values
@@ -155,7 +162,7 @@ fn create_plain_string_batch(
     RecordBatch::try_new(schema, columns).unwrap()
 }
 
-/// Benchmark LowCardinality insert with varying cardinality
+/// Benchmark `LowCardinality` insert with varying cardinality
 fn bench_low_cardinality_insert_cardinality(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     init();
@@ -221,7 +228,7 @@ fn bench_low_cardinality_insert_cardinality(c: &mut Criterion) {
     rt.block_on(ch.shutdown()).expect("shutdown");
 }
 
-/// Benchmark LowCardinality insert with varying value lengths
+/// Benchmark `LowCardinality` insert with varying value lengths
 fn bench_low_cardinality_insert_value_length(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     init();
@@ -253,7 +260,7 @@ fn bench_low_cardinality_insert_value_length(c: &mut Criterion) {
             .block_on(arrow_tests::setup_table(&client, TEST_DB_NAME, &batch.schema()))
             .expect("table setup");
 
-        let total_bytes = rows * 1 + cardinality * value_len; // UInt8 keys + dict values
+        let total_bytes = rows + cardinality * value_len; // UInt8 keys + dict values
         let _ = group.throughput(Throughput::Bytes(total_bytes as u64));
 
         let _ = group.bench_with_input(
@@ -277,7 +284,7 @@ fn bench_low_cardinality_insert_value_length(c: &mut Criterion) {
     rt.block_on(ch.shutdown()).expect("shutdown");
 }
 
-/// Benchmark LowCardinality vs plain String comparison
+/// Benchmark `LowCardinality` vs plain String comparison
 fn bench_low_cardinality_vs_plain(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     init();
@@ -357,7 +364,7 @@ fn bench_low_cardinality_vs_plain(c: &mut Criterion) {
     rt.block_on(ch.shutdown()).expect("shutdown");
 }
 
-/// Benchmark LowCardinality query performance
+/// Benchmark `LowCardinality` query performance
 fn bench_low_cardinality_query(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     init();
@@ -429,7 +436,7 @@ fn bench_low_cardinality_query(c: &mut Criterion) {
     rt.block_on(ch.shutdown()).expect("shutdown");
 }
 
-/// Benchmark LowCardinality with binary values
+/// Benchmark `LowCardinality` with binary values
 fn bench_low_cardinality_binary(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     init();
@@ -487,7 +494,7 @@ fn bench_low_cardinality_binary(c: &mut Criterion) {
     rt.block_on(ch.shutdown()).expect("shutdown");
 }
 
-/// Benchmark multi-column LowCardinality
+/// Benchmark multi-column `LowCardinality`
 fn bench_low_cardinality_multi_column(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     init();
@@ -520,7 +527,7 @@ fn bench_low_cardinality_multi_column(c: &mut Criterion) {
             .expect("table setup");
 
         // Each column has its own dictionary
-        let total_bytes = num_cols * (rows * 1 + cardinality * value_len);
+        let total_bytes = num_cols * (rows + cardinality * value_len);
         let _ = group.throughput(Throughput::Bytes(total_bytes as u64));
 
         let _ = group.bench_with_input(

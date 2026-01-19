@@ -1,3 +1,6 @@
+// Different Value variants serialize identically (e.g., Int64 and Decimal64)
+#![allow(clippy::match_same_arms)]
+
 use tokio::io::AsyncWriteExt;
 
 use super::{Serializer, SerializerState, Type};

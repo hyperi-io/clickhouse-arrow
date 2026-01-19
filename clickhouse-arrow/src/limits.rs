@@ -207,24 +207,24 @@ where
                     let batch_memory = batch.get_array_memory_size();
 
                     // Check row limit
-                    if let Some(max_rows) = this.limits.max_rows {
-                        if this.state.total_rows + batch_rows > max_rows {
-                            return Some(TruncationReason::RowLimit);
-                        }
+                    if let Some(max_rows) = this.limits.max_rows
+                        && this.state.total_rows + batch_rows > max_rows
+                    {
+                        return Some(TruncationReason::RowLimit);
                     }
 
                     // Check memory limit
-                    if let Some(max_memory) = this.limits.max_memory_bytes {
-                        if this.state.total_memory + batch_memory > max_memory {
-                            return Some(TruncationReason::MemoryLimit);
-                        }
+                    if let Some(max_memory) = this.limits.max_memory_bytes
+                        && this.state.total_memory + batch_memory > max_memory
+                    {
+                        return Some(TruncationReason::MemoryLimit);
                     }
 
                     // Check batch limit
-                    if let Some(max_batches) = this.limits.max_batches {
-                        if this.state.total_batches + 1 > max_batches {
-                            return Some(TruncationReason::BatchLimit);
-                        }
+                    if let Some(max_batches) = this.limits.max_batches
+                        && this.state.total_batches + 1 > max_batches
+                    {
+                        return Some(TruncationReason::BatchLimit);
                     }
 
                     None
@@ -302,6 +302,7 @@ mod tests {
 
     use super::*;
 
+    #[allow(clippy::cast_possible_wrap)] // Test data, rows << i64::MAX
     fn create_test_batch(rows: usize) -> RecordBatch {
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
         let array = Int64Array::from((0..rows).map(|i| i as i64).collect::<Vec<_>>());

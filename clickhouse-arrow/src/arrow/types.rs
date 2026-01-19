@@ -488,9 +488,10 @@ pub fn ch_to_arrow_type(ch_type: &Type, options: Option<ArrowOptions>) -> Result
                 .map(|(i, t)| {
                     let (arrow_type, nullable) = ch_to_arrow_type(t, options)?;
                     let type_name = format!("{t}");
-                    #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                    let type_code = i as i8;
                     let field = Arc::new(Field::new(&type_name, arrow_type, nullable));
-                    Ok((i as i8, field))
+                    Ok((type_code, field))
                 })
                 .collect::<Result<Vec<_>>>()?
                 .into_iter()

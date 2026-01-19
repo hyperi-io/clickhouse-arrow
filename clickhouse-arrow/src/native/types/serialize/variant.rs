@@ -6,11 +6,16 @@
 // License:   LicenseRef-HyperSec-EULA
 // Copyright: (c) 2025 HyperSec
 
-//! Serializer for ClickHouse Variant type (introduced in ClickHouse 24.x).
+// Serialization code uses specific patterns for clarity in async contexts
+#![allow(clippy::manual_let_else)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::cast_possible_truncation)] // Discriminators are u8 per CH spec
+
+//! Serializer for `ClickHouse` Variant type (introduced in `ClickHouse` 24.x).
 //!
 //! Binary format:
-//! - Row-by-row: discriminator (u8) + variant_data (if not NULL)
-//! - Discriminator 255 = NULL_DISCRIMINATOR (null value)
+//! - Row-by-row: discriminator (u8) + `variant_data` (if not NULL)
+//! - Discriminator 255 = `NULL_DISCRIMINATOR` (null value)
 //! - Discriminators 0-254 map to variant types in order
 //!
 //! Reference: ClickHouse/src/DataTypes/Serializations/SerializationVariant.cpp
@@ -173,7 +178,7 @@ fn find_matching_variant(value: &Value, variant_types: &[Type]) -> Result<u8> {
             return Ok(i as u8);
         }
     }
-    Err(Error::SerializeError(format!("Value {:?} does not match any variant type", value)))
+    Err(Error::SerializeError(format!("Value {value:?} does not match any variant type")))
 }
 
 /// Check if a value matches a type.

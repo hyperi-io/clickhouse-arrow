@@ -50,6 +50,19 @@ jemalloc = ["dep:tikv-jemallocator"]
 # Use mimalloc allocator (good for mixed workloads, better security hardening)
 mimalloc = ["dep:mimalloc"]
 
+# -- CI --
+# Enable all features for CI testing (excludes mutually exclusive allocators)
+ci = [
+    "derive",
+    "serde",
+    "pool",
+    "inner_pool",
+    "geo-types",
+    "cloud",
+    "rust_decimal",
+    "test-utils",
+]
+
 # -- Testing --
 test-utils = [
     "dep:testcontainers",

@@ -35,16 +35,16 @@ const CLICKHOUSE_NATIVE_PORT: u16 = 9000;
 const CLICKHOUSE_HTTP_PORT: u16 = 8123;
 const CLICKHOUSE_ENDPOINT: &str = "localhost";
 
-/// Check if external ClickHouse should be used instead of a container.
+/// Check if external `ClickHouse` should be used instead of a container.
 ///
 /// Returns `true` if `CLICKHOUSE_HOST` environment variable is set,
-/// which indicates the user wants to use an external ClickHouse instance.
+/// which indicates the user wants to use an external `ClickHouse` instance.
 pub fn use_external_clickhouse() -> bool { env::var(HOST_ENV).is_ok_and(|v| !v.is_empty()) }
 
-/// Create a `ClickHouseContainer` from environment variables for external ClickHouse.
+/// Create a `ClickHouseContainer` from environment variables for external `ClickHouse`.
 ///
 /// This is used when `CLICKHOUSE_HOST` is set to connect to an external
-/// ClickHouse instance instead of spinning up a testcontainer.
+/// `ClickHouse` instance instead of spinning up a testcontainer.
 fn create_external_container() -> ClickHouseContainer {
     let endpoint = env::var(HOST_ENV)
         .or_else(|_| env::var(ENDPOINT_ENV))
@@ -87,9 +87,9 @@ pub static CONTAINER: OnceLock<Arc<ClickHouseContainer>> = OnceLock::new();
 fn load_dotenv() {
     use std::io::BufRead;
     static LOADED: OnceLock<()> = OnceLock::new();
-    LOADED.get_or_init(|| {
+    let () = *LOADED.get_or_init(|| {
         // Walk up from current dir to find .env
-        let mut dir = std::env::current_dir().ok();
+        let mut dir = env::current_dir().ok();
         while let Some(d) = dir {
             let env_path = d.join(".env");
             if env_path.exists() {
@@ -112,7 +112,7 @@ fn load_dotenv() {
                 }
                 break;
             }
-            dir = d.parent().map(|p| p.to_path_buf());
+            dir = d.parent().map(std::path::Path::to_path_buf);
         }
     });
 }
@@ -177,20 +177,20 @@ pub fn get_filter(rust_log: &str, directives: Option<&[(&str, &str)]>) -> EnvFil
     filter
 }
 
-/// Get or create a ClickHouse connection for tests.
+/// Get or create a `ClickHouse` connection for tests.
 ///
-/// If `CLICKHOUSE_HOST` is set, connects to an external ClickHouse instance.
+/// If `CLICKHOUSE_HOST` is set, connects to an external `ClickHouse` instance.
 /// Otherwise, spins up a testcontainer.
 ///
 /// # Environment Variables
-/// - `CLICKHOUSE_HOST`: External ClickHouse hostname (skips container creation)
+/// - `CLICKHOUSE_HOST`: External `ClickHouse` hostname (skips container creation)
 /// - `CLICKHOUSE_NATIVE_PORT`: Native protocol port (default: 9000)
 /// - `CLICKHOUSE_HTTP_PORT`: HTTP port (default: 8123)
 /// - `CLICKHOUSE_USER`: Username (default: "clickhouse")
 /// - `CLICKHOUSE_PASSWORD`: Password (default: "clickhouse")
 ///
 /// # Panics
-/// Panics if container creation fails (when not using external ClickHouse).
+/// Panics if container creation fails (when not using external `ClickHouse`).
 pub async fn get_or_create_container(conf: Option<&str>) -> &'static Arc<ClickHouseContainer> {
     if let Some(c) = CONTAINER.get() {
         return c;
@@ -208,7 +208,7 @@ pub async fn get_or_create_container(conf: Option<&str>) -> &'static Arc<ClickHo
     CONTAINER.get_or_init(|| Arc::new(ch))
 }
 
-/// Verify an external ClickHouse instance is reachable.
+/// Verify an external `ClickHouse` instance is reachable.
 /// Returns true if connection succeeds, false otherwise.
 async fn verify_external_clickhouse(container: &ClickHouseContainer) -> bool {
     use tokio::net::TcpStream;
@@ -231,13 +231,13 @@ async fn verify_external_clickhouse(container: &ClickHouseContainer) -> bool {
     }
 }
 
-/// Create a new ClickHouse connection.
+/// Create a new `ClickHouse` connection.
 ///
 /// If `CLICKHOUSE_HOST` is set and the instance is reachable, connects to it.
 /// Otherwise, falls back to spinning up a testcontainer.
 ///
 /// # Panics
-/// Panics if container creation fails (when not using external ClickHouse).
+/// Panics if container creation fails (when not using external `ClickHouse`).
 pub async fn create_container(conf: Option<&str>) -> Arc<ClickHouseContainer> {
     // Try external ClickHouse first if configured
     if use_external_clickhouse() {
@@ -256,11 +256,11 @@ pub async fn create_container(conf: Option<&str>) -> Arc<ClickHouseContainer> {
 
 /// Get or create a `ClickHouse` connection for benchmarks.
 ///
-/// If `CLICKHOUSE_HOST` is set, connects to an external ClickHouse instance.
+/// If `CLICKHOUSE_HOST` is set, connects to an external `ClickHouse` instance.
 /// Otherwise, spins up a testcontainer with optional tmpfs for zero disk I/O.
 ///
 /// # Environment Variables
-/// - `CLICKHOUSE_HOST`: External ClickHouse hostname (skips container creation)
+/// - `CLICKHOUSE_HOST`: External `ClickHouse` hostname (skips container creation)
 /// - `CLICKHOUSE_NATIVE_PORT`: Native protocol port (default: 9000)
 /// - `CLICKHOUSE_HTTP_PORT`: HTTP port (default: 8123)
 /// - `CLICKHOUSE_USER`: Username (default: "clickhouse")
@@ -269,7 +269,7 @@ pub async fn create_container(conf: Option<&str>) -> Arc<ClickHouseContainer> {
 ///   external)
 ///
 /// # Panics
-/// Panics if the container fails to start (when not using external ClickHouse).
+/// Panics if the container fails to start (when not using external `ClickHouse`).
 pub async fn get_or_create_benchmark_container(conf: Option<&str>) -> &'static ClickHouseContainer {
     static BENCHMARK_CONTAINER: OnceLock<Arc<ClickHouseContainer>> = OnceLock::new();
 
@@ -469,7 +469,7 @@ impl ClickHouseContainer {
 
     pub fn get_http_port(&self) -> u16 { self.http_port }
 
-    /// Returns `true` if this is an external ClickHouse connection (not a container).
+    /// Returns `true` if this is an external `ClickHouse` connection (not a container).
     pub async fn is_external(&self) -> bool { self.container.read().await.is_none() }
 
     /// Shutdown the container (no-op for external connections).

@@ -6,7 +6,10 @@
 // License:   LicenseRef-HyperSec-EULA
 // Copyright: (c) 2025 HyperSec
 
-//! Serializer for ClickHouse Nested type.
+// Serialization code uses specific patterns for clarity in async contexts
+#![allow(clippy::manual_let_else)]
+
+//! Serializer for `ClickHouse` Nested type.
 //!
 //! Nested is syntactic sugar for Array(Tuple(...)).
 //! For example: `Nested(a UInt32, b String)` is stored as `Array(Tuple(a UInt32, b String))`

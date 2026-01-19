@@ -3,6 +3,14 @@
 //! Tests how different batch sizes affect throughput, latency, and memory usage.
 //! Critical for tuning the optimal batch size for different workloads.
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts and result handling are benign
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
+#![allow(dead_code)]
 
 mod common;
 

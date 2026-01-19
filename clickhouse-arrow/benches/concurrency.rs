@@ -3,6 +3,14 @@
 //! Tests throughput under concurrent load, connection pool effectiveness,
 //! and scaling characteristics.
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts are safe for test data sizes
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
+#![allow(clippy::disallowed_methods)] // tokio::spawn in benchmark context
 
 mod common;
 

@@ -4,6 +4,13 @@
 //! operations in the serialization path. These benchmarks isolate the performance
 //! characteristics of nested data structures.
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts are safe for test data sizes
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
 
 mod common;
 
@@ -107,7 +114,7 @@ fn create_nested_array_batch(
 
     let columns: Vec<ArrayRef> = (0..num_cols)
         .map(|col| {
-            let mut inner_builder = ListBuilder::new(Int64Builder::new());
+            let inner_builder = ListBuilder::new(Int64Builder::new());
             let mut outer_builder = ListBuilder::new(inner_builder);
 
             for row in 0..rows {
@@ -165,6 +172,7 @@ fn create_variable_array_batch(
 }
 
 /// Create a batch with nullable arrays (some arrays are null)
+#[allow(dead_code)] // Reserved for future nullable array benchmarks
 fn create_nullable_array_batch(
     rows: usize,
     elements_per_array: usize,
@@ -427,7 +435,7 @@ fn bench_variable_array_insert(c: &mut Criterion) {
             let batch = create_variable_array_batch(rows, min, max, num_cols);
 
             // Estimate average bytes
-            let avg_elements = (min + max) / 2;
+            let avg_elements = usize::midpoint(min, max);
             let total_bytes = rows * avg_elements * 8 * num_cols;
 
             let table = rt

@@ -1,4 +1,8 @@
-//! Tests for EXPLAIN functionality via query_with_options.
+//! Tests for EXPLAIN functionality via `query_with_options`.
+
+// Test utilities intentionally panic on failure
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::unused_async)]
 
 use std::sync::Arc;
 
@@ -32,7 +36,7 @@ pub async fn test_explain_ast_parallel(ch: Arc<ClickHouseContainer>) {
     );
 
     let qid = Qid::new();
-    header(&qid, "Testing EXPLAIN AST with parallel query");
+    header(qid, "Testing EXPLAIN AST with parallel query");
 
     // Run query with EXPLAIN AST in parallel
     let query = format!("SELECT * FROM {db}.{table}");
@@ -86,7 +90,7 @@ pub async fn test_explain_syntax(ch: Arc<ClickHouseContainer>) {
     let (client, _) = bootstrap(ch.as_ref(), Some(CompressionMethod::None)).await;
 
     let qid = Qid::new();
-    header(&qid, "Testing EXPLAIN SYNTAX");
+    header(qid, "Testing EXPLAIN SYNTAX");
 
     // Run query with EXPLAIN SYNTAX in explain-only mode
     let query = "SELECT 1 + 1";
@@ -153,7 +157,7 @@ pub async fn test_explain_plan(ch: Arc<ClickHouseContainer>) {
     );
 
     let qid = Qid::new();
-    header(&qid, "Testing EXPLAIN PLAN");
+    header(qid, "Testing EXPLAIN PLAN");
 
     // Run query with EXPLAIN PLAN
     let query = format!("SELECT id, name FROM {db}.{table} WHERE id > 0");
@@ -215,7 +219,7 @@ pub async fn test_explain_pipeline(ch: Arc<ClickHouseContainer>) {
     );
 
     let qid = Qid::new();
-    header(&qid, "Testing EXPLAIN PIPELINE");
+    header(qid, "Testing EXPLAIN PIPELINE");
 
     // Run query with EXPLAIN PIPELINE
     let query = format!("SELECT * FROM {db}.{table}");
@@ -270,7 +274,7 @@ pub async fn test_explain_estimate(ch: Arc<ClickHouseContainer>) {
     );
 
     let qid = Qid::new();
-    header(&qid, "Testing EXPLAIN ESTIMATE");
+    header(qid, "Testing EXPLAIN ESTIMATE");
 
     // Run query with EXPLAIN ESTIMATE - returns structured data
     let query = format!("SELECT * FROM {db}.{table}");
@@ -308,7 +312,7 @@ pub async fn test_explain_estimate(ch: Arc<ClickHouseContainer>) {
     client.shutdown().await.unwrap();
 }
 
-/// Test query_with_options without explain (just params and qid).
+/// Test `query_with_options` without explain (just params and qid).
 pub async fn test_query_options_no_explain(ch: Arc<ClickHouseContainer>) {
     let (client, options) = bootstrap(ch.as_ref(), Some(CompressionMethod::None)).await;
 
@@ -328,7 +332,7 @@ pub async fn test_query_options_no_explain(ch: Arc<ClickHouseContainer>) {
     );
 
     let qid = Qid::new();
-    header(&qid, "Testing query_with_options without explain");
+    header(qid, "Testing query_with_options without explain");
 
     // Run query with just qid, no explain
     let query = format!("SELECT * FROM {db}.{table}");

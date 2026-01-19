@@ -6,13 +6,16 @@
 // License:   LicenseRef-HyperSec-EULA
 // Copyright: (c) 2025 HyperSec
 
-//! Serializer for ClickHouse Dynamic type (introduced in ClickHouse 24.x).
+// ClickHouse Dynamic type uses u8 discriminators, max 255 types
+#![allow(clippy::cast_possible_truncation)]
+
+//! Serializer for `ClickHouse` Dynamic type (introduced in `ClickHouse` 24.x).
 //!
 //! Dynamic is similar to Variant but with runtime-discovered types.
 //! The type information is stored in the structure prefix.
 //!
 //! Binary format:
-//! - Structure prefix: version (u64) + num_types (varuint) + type_names...
+//! - Structure prefix: version (u64) + `num_types` (varuint) + `type_names`...
 //! - Data: variant discriminators + variant columns
 //!
 //! Reference: ClickHouse/src/DataTypes/Serializations/SerializationDynamic.cpp
@@ -251,7 +254,7 @@ impl Serializer for DynamicSerializer {
     }
 }
 
-/// Infer ClickHouse type name from a Value
+/// Infer `ClickHouse` type name from a Value
 fn infer_type_name(value: &Value) -> String {
     match value {
         Value::Int8(_) => "Int8".to_string(),
@@ -287,10 +290,10 @@ fn infer_type_name(value: &Value) -> String {
         Value::Polygon(_) => "Polygon".to_string(),
         Value::MultiPolygon(_) => "MultiPolygon".to_string(),
         Value::Object(_) => "Object('json')".to_string(),
-        Value::Decimal32(scale, _) => format!("Decimal32({})", scale),
-        Value::Decimal64(scale, _) => format!("Decimal64({})", scale),
-        Value::Decimal128(scale, _) => format!("Decimal128({})", scale),
-        Value::Decimal256(scale, _) => format!("Decimal256({})", scale),
+        Value::Decimal32(scale, _) => format!("Decimal32({scale})"),
+        Value::Decimal64(scale, _) => format!("Decimal64({scale})"),
+        Value::Decimal128(scale, _) => format!("Decimal128({scale})"),
+        Value::Decimal256(scale, _) => format!("Decimal256({scale})"),
         Value::Variant(_, _) => "Variant".to_string(),
         Value::Dynamic(type_name, _) => type_name.clone(),
         // DFE Fork: Additional types
@@ -369,8 +372,7 @@ async fn serialize_value_async<W: ClickHouseWrite>(value: Value, writer: &mut W)
         }
         _ => {
             return Err(Error::SerializeError(format!(
-                "Unsupported value type in Dynamic: {:?}",
-                value
+                "Unsupported value type in Dynamic: {value:?}"
             )));
         }
     }

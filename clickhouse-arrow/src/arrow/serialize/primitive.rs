@@ -1,5 +1,6 @@
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::cast_sign_loss)]
+#![allow(clippy::items_after_statements)] // Static null values inline with usage
 /// Serialization logic for `ClickHouse` primitive types from Arrow arrays.
 ///
 /// This module provides functions to serialize Arrow arrays into `ClickHouse`’s native format

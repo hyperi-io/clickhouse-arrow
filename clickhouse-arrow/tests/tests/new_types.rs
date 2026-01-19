@@ -1,9 +1,13 @@
-//! E2E integration tests for new ClickHouse types introduced in v24+
+//! E2E integration tests for new `ClickHouse` types introduced in v24+
 //!
-//! Tests: BFloat16, Variant, Dynamic, Nested, Time/Time64
+//! Tests: `BFloat16`, Variant, Dynamic, Nested, Time/Time64
 //!
-//! These tests verify round-trip serialization/deserialization against a real ClickHouse instance.
-//! Uses ArrowClient for querying since it handles arbitrary result types better.
+//! These tests verify round-trip serialization/deserialization against a real `ClickHouse`
+//! instance. Uses `ArrowClient` for querying since it handles arbitrary result types better.
+
+// Test utilities intentionally panic on failure
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::unused_async)]
 
 use std::sync::Arc;
 
@@ -16,7 +20,7 @@ use tracing::{debug, info};
 
 use crate::common::header;
 
-/// Helper to create an ArrowClient for testing
+/// Helper to create an `ArrowClient` for testing
 async fn create_client(ch: &ClickHouseContainer) -> ArrowClient {
     let native_url = ch.get_native_url();
     debug!("ClickHouse Native URL: {native_url}");
@@ -46,13 +50,13 @@ async fn query_all(client: &ArrowClient, query: &str, qid: Qid) -> Vec<RecordBat
 }
 
 /// Count total rows across all batches
-fn count_rows(batches: &[RecordBatch]) -> usize { batches.iter().map(|b| b.num_rows()).sum() }
+fn count_rows(batches: &[RecordBatch]) -> usize { batches.iter().map(RecordBatch::num_rows).sum() }
 
 // =============================================================================
 // BFloat16 Tests
 // =============================================================================
 
-/// Test BFloat16 type round-trip via raw SQL
+/// Test `BFloat16` type round-trip via raw SQL
 pub async fn test_bfloat16_basic(ch: Arc<ClickHouseContainer>) {
     let client = create_client(&ch).await;
 
@@ -292,7 +296,7 @@ pub async fn test_dynamic_basic(ch: Arc<ClickHouseContainer>) {
     info!("Dynamic basic test passed!");
 }
 
-/// Test Dynamic with max_types limit
+/// Test Dynamic with `max_types` limit
 ///
 /// Note: Dynamic Arrow deserialization returns data as UTF-8 strings.
 /// This test queries type info only.
@@ -458,8 +462,8 @@ pub async fn test_nested_flatten(ch: Arc<ClickHouseContainer>) {
 // Time Types Tests
 // =============================================================================
 
-/// Test Time (seconds since midnight) - Note: ClickHouse doesn't have native Time type,
-/// this tests the UInt32 representation we use
+/// Test Time (seconds since midnight) - Note: `ClickHouse` doesn't have native Time type,
+/// this tests the `UInt32` representation we use
 pub async fn test_time_simulation(ch: Arc<ClickHouseContainer>) {
     let client = create_client(&ch).await;
 

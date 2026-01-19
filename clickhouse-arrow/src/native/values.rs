@@ -1,3 +1,6 @@
+// Precision values are small integers that fit in u32
+#![allow(clippy::cast_possible_truncation)]
+
 mod bytes;
 mod clickhouse_uuid;
 mod date;
@@ -90,15 +93,15 @@ pub enum Value {
 
     // === DFE Fork: New types for ClickHouse 24.x+ ===
     /// Variant value - discriminator (0-254) and boxed inner value
-    /// Discriminator 255 (NULL_DISCRIMINATOR) is represented as Value::Null
+    /// Discriminator 255 (`NULL_DISCRIMINATOR`) is represented as `Value::Null`
     Variant(u8, Box<Value>),
 
     /// Dynamic value - type name and boxed inner value
-    /// NULL is represented as Value::Null
+    /// NULL is represented as `Value::Null`
     Dynamic(String, Box<Value>),
 
     // === DFE Fork: Additional types ===
-    /// BFloat16 - Brain floating point (raw u16 bits)
+    /// `BFloat16` - Brain floating point (raw u16 bits)
     BFloat16(u16),
 
     /// Time - seconds since midnight (0-86399)
@@ -107,10 +110,10 @@ pub enum Value {
     /// Time64 - scaled value since midnight (precision, value)
     Time64(usize, i64),
 
-    /// AggregateFunction - opaque binary state
+    /// `AggregateFunction` - opaque binary state
     AggregateFunction(Vec<u8>),
 
-    /// SimpleAggregateFunction - uses underlying value type
+    /// `SimpleAggregateFunction` - uses underlying value type
     /// Stored as the underlying type's value
     SimpleAggregateFunction(Box<Value>),
 }

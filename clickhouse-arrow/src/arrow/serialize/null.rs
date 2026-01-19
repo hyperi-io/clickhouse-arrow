@@ -10,7 +10,7 @@
 ///
 /// # Performance
 ///
-/// This module uses SIMD-accelerated bit expansion on supported platforms (x86_64 with AVX2,
+/// This module uses SIMD-accelerated bit expansion on supported platforms (`x86_64` with AVX2,
 /// aarch64 with NEON) for significantly improved performance when processing large arrays.
 /// A buffer pool is used to avoid repeated allocations in hot paths.
 ///

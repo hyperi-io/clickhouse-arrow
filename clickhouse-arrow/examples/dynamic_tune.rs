@@ -6,7 +6,6 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::doc_markdown,
-    clippy::manual_is_multiple_of,
     clippy::unused_enumerate_index,
     clippy::manual_div_ceil,
     clippy::too_many_lines,

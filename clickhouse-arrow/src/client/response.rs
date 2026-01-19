@@ -37,7 +37,7 @@ pub(crate) fn handle_insert_response<T: ClientFormat>(
         })
 }
 
-/// Response from a ClickHouse query.
+/// Response from a `ClickHouse` query.
 ///
 /// This struct wraps a stream of query results and optionally includes
 /// an EXPLAIN result if explain options were provided.

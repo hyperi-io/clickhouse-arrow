@@ -6,6 +6,17 @@
 //! Run with: cargo bench --bench version_compare
 
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts and baseline implementations are safe
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::manual_div_ceil)]
+#![allow(clippy::doc_markdown)]
 
 use std::hint::black_box;
 
@@ -197,8 +208,7 @@ fn bench_buffer_pool_realistic(c: &mut Criterion) {
             b.iter(|| {
                 // Simulate 10 serialization operations
                 for _ in 0..10 {
-                    let mut v = Vec::with_capacity(sz);
-                    v.resize(sz, 0u8);
+                    let mut v = vec![0u8; sz];
                     // Simulate some work
                     v[0] = 1;
                     v[sz - 1] = 2;

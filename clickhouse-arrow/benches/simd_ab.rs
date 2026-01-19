@@ -3,6 +3,24 @@
 //! This benchmark compares the optimized SIMD implementations against
 //! the baseline scalar implementations to measure actual performance gains.
 
+#![expect(unused_crate_dependencies)]
+// Benchmark code: casts are safe for test data sizes
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
+#![allow(clippy::disallowed_methods)]
+#![allow(clippy::explicit_iter_loop)]
+#![allow(clippy::unreadable_literal)]
+#![allow(clippy::deprecated_clippy_cfg_attr)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::manual_div_ceil)]
+#![allow(clippy::slow_vector_initialization)]
+#![allow(deprecated)] // criterion::black_box
+#![allow(dead_code)]
+
 use std::hint::black_box as bb;
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};

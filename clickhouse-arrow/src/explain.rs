@@ -48,7 +48,7 @@ pub enum ExplainOperation {
     Ast,
     /// Normalized SQL - shows query after AST-level optimizations.
     Syntax,
-    /// Query execution plan - shows operations like ReadFromStorage, Filter, etc.
+    /// Query execution plan - shows operations like `ReadFromStorage`, Filter, etc.
     #[default]
     Plan,
     /// Processor pipeline - shows actual execution threads and processors.
@@ -96,7 +96,7 @@ pub enum ExplainFormat {
     Text,
     /// JSON output (only valid for `Plan` operation).
     Json,
-    /// Arrow RecordBatch output (only valid for `Estimate` operation).
+    /// Arrow `RecordBatch` output (only valid for `Estimate` operation).
     Arrow,
 }
 
@@ -217,7 +217,7 @@ impl ExplainOptions {
         self
     }
 
-    /// Set mode to ExplainOnly (don't execute the query).
+    /// Set mode to `ExplainOnly` (don't execute the query).
     #[must_use]
     pub fn explain_only(mut self) -> Self {
         self.mode = ExplainMode::ExplainOnly;
@@ -253,7 +253,7 @@ pub enum ExplainResult {
     /// JSON output (structured plan data).
     #[cfg(feature = "serde")]
     Json(serde_json::Value),
-    /// Arrow RecordBatch output (ESTIMATE tabular data).
+    /// Arrow `RecordBatch` output (ESTIMATE tabular data).
     Arrow(RecordBatch),
 }
 
@@ -277,7 +277,7 @@ impl ExplainResult {
         }
     }
 
-    /// Get the result as Arrow RecordBatch, if it is Arrow.
+    /// Get the result as Arrow `RecordBatch`, if it is Arrow.
     #[must_use]
     pub fn as_arrow(&self) -> Option<&RecordBatch> {
         match self {
@@ -337,7 +337,7 @@ pub struct ExplainEstimateRow {
 }
 
 impl ExplainEstimateRow {
-    /// Parse estimate rows from an Arrow RecordBatch.
+    /// Parse estimate rows from an Arrow `RecordBatch`.
     ///
     /// # Errors
     /// Returns an error if the batch doesn't have the expected schema.

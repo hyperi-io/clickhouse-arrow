@@ -154,7 +154,7 @@ macro_rules! put_variable_values {
 macro_rules! write_fixed_values {
     // Fixed-size with dynamic length (e.g., FixedSizedString)
     ($name:ident, [$(($at:ty => $coerce:expr)),* $(,)?]) => {
-        /// Serializes an Arrow array to ClickHouse's native format for fixed-length data.
+        /// Serializes an Arrow array to `ClickHouse`'s native format for fixed-length data.
         ///
         /// Writes each value padded to the specified length with zeros if shorter, or truncated if
         /// longer. Null values are written as zeroed buffers of the expected length. Supports multiple
@@ -212,7 +212,7 @@ macro_rules! write_fixed_values {
 macro_rules! put_fixed_values {
     // Fixed-size with dynamic length (e.g., FixedSizedString)
     ($name:ident, [$(($at:ty => $coerce:expr)),* $(,)?]) => {
-        /// Serializes an Arrow array to ClickHouse's native format for fixed-length data.
+        /// Serializes an Arrow array to `ClickHouse`'s native format for fixed-length data.
         ///
         /// Writes each value padded to the specified length with zeros if shorter, or truncated if
         /// longer. Null values are written as zeroed buffers of the expected length. Supports multiple

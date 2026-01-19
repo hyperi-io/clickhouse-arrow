@@ -6,6 +6,15 @@
 //! - Allocation patterns during serialization/deserialization
 //! - Buffer reuse effectiveness
 #![expect(unused_crate_dependencies)]
+// Benchmark code: casts are safe for test data sizes
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_lossless)]
+#![allow(unused_results)]
+#![allow(dead_code)]
+#![allow(clippy::slow_vector_initialization)]
 
 mod common;
 
@@ -177,7 +186,7 @@ fn create_nested_batch(rows: usize, list_size: usize) -> (RecordBatch, usize) {
     (batch, rows * wire_bytes_per_row)
 }
 
-/// Create a dictionary-encoded batch (simulates LowCardinality)
+/// Create a dictionary-encoded batch (simulates `LowCardinality`)
 fn create_dictionary_batch(
     rows: usize,
     cardinality: usize,

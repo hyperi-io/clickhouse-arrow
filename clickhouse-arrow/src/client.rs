@@ -1556,6 +1556,9 @@ impl Client<ArrowFormat> {
     /// A [`Result`] containing a [`LimitedResponse<ClickHouseResponse<RecordBatch>>`] that
     /// streams query results and provides access to truncation status via `stats()`.
     ///
+    /// # Errors
+    /// Returns an error if the query fails to execute or if connection issues occur.
+    ///
     /// # Examples
     /// ```rust,ignore
     /// use clickhouse_arrow::prelude::*;
@@ -1610,6 +1613,9 @@ impl Client<ArrowFormat> {
     /// # Returns
     /// A [`Result`] containing a [`LimitedResponse`] that streams query results with
     /// limit enforcement and truncation tracking.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails to execute or if connection issues occur.
     ///
     /// # Examples
     /// ```rust,ignore
@@ -1674,6 +1680,9 @@ impl Client<ArrowFormat> {
     /// query results. If explain was configured, use [`ClickHouseResponse::explain`]
     /// to retrieve the explain result.
     ///
+    /// # Errors
+    /// Returns an error if the query fails to execute or if connection issues occur.
+    ///
     /// # Examples
     ///
     /// ```rust,ignore
@@ -1725,7 +1734,7 @@ impl Client<ArrowFormat> {
         use crate::explain::{ExplainFormat, ExplainResult};
 
         let parsed_query = query.into();
-        let qid = options.qid.unwrap_or_else(Qid::new);
+        let qid = options.qid.unwrap_or_default();
 
         // Handle EXPLAIN if configured
         let explain_receiver = if let Some(ref explain_opts) = options.explain {
@@ -1740,6 +1749,10 @@ impl Client<ArrowFormat> {
             let explain_qid = Qid::new();
 
             // Spawn the explain query (detached, receiver will wait for result)
+            // Using tokio::spawn directly here is intentional - we don't need cancel-safety
+            // because the result is communicated via oneshot channel, and dropping the receiver
+            // will naturally signal the sender to stop.
+            #[allow(clippy::disallowed_methods)]
             drop(tokio::spawn(async move {
                 let result = async {
                     let mut stream = client
@@ -1765,7 +1778,7 @@ impl Client<ArrowFormat> {
                         #[cfg(feature = "serde")]
                         ExplainFormat::Json => {
                             // Collect text and parse as JSON
-                            let text = Self::extract_explain_text(&batches)?;
+                            let text = Self::extract_explain_text(&batches);
                             let json: serde_json::Value =
                                 serde_json::from_str(&text).map_err(|e| {
                                     Error::DeserializeError(format!(
@@ -1777,11 +1790,11 @@ impl Client<ArrowFormat> {
                         #[cfg(not(feature = "serde"))]
                         ExplainFormat::Json => {
                             // Without serde, return as text
-                            let text = Self::extract_explain_text(&batches)?;
+                            let text = Self::extract_explain_text(&batches);
                             Ok(ExplainResult::Text(text))
                         }
                         ExplainFormat::Text => {
-                            let text = Self::extract_explain_text(&batches)?;
+                            let text = Self::extract_explain_text(&batches);
                             Ok(ExplainResult::Text(text))
                         }
                     }
@@ -1837,7 +1850,7 @@ impl Client<ArrowFormat> {
     }
 
     /// Extract text from EXPLAIN result batches.
-    fn extract_explain_text(batches: &[RecordBatch]) -> Result<String> {
+    fn extract_explain_text(batches: &[RecordBatch]) -> String {
         use arrow::array::{Array, StringArray};
 
         let mut lines = Vec::new();
@@ -1854,7 +1867,7 @@ impl Client<ArrowFormat> {
                 }
             }
         }
-        Ok(lines.join("\n"))
+        lines.join("\n")
     }
 
     /// Executes a `ClickHouse` query and streams rows as column-major values.
