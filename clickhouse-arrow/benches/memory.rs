@@ -109,7 +109,7 @@ fn create_string_batch(rows: usize, string_len: usize) -> (RecordBatch, usize) {
     // Wire bytes: length prefix (varint ~1-2 bytes) + string data
     let wire_bytes_per_row = 2 + string_len; // approximate
 
-    let pattern: Vec<u8> = (0..string_len).map(|i| (b'a' + (i % 26) as u8)).collect();
+    let pattern: Vec<u8> = (0..string_len).map(|i| b'a' + (i % 26) as u8).collect();
     let columns: Vec<ArrayRef> =
         vec![Arc::new(BinaryArray::from_iter_values((0..rows).map(|_| pattern.as_slice())))];
 
@@ -126,7 +126,7 @@ fn create_variable_string_batch(rows: usize) -> (RecordBatch, usize) {
     let strings: Vec<Vec<u8>> = (0..rows)
         .map(|i| {
             let len = lengths[i % lengths.len()];
-            (0..len).map(|j| (b'a' + (j % 26) as u8)).collect()
+            (0..len).map(|j| b'a' + (j % 26) as u8).collect()
         })
         .collect();
 
