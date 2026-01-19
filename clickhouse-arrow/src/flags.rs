@@ -24,3 +24,10 @@ pub(crate) fn conn_write_buffer_size() -> usize {
         .and_then(|e| e.parse::<usize>().ok())
         .unwrap_or(CONN_WRITE_BUFFER_DEFAULT)
 }
+
+pub(crate) fn chunk_write_buffer_size() -> usize {
+    std::env::var(CHUNK_WRITE_BUFFER_ENV_VAR)
+        .ok()
+        .and_then(|e| e.parse::<usize>().ok())
+        .unwrap_or(CHUNK_WRITE_BUFFER_DEFAULT)
+}

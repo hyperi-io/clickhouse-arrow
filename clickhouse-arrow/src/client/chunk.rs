@@ -7,6 +7,7 @@ use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{debug, trace};
 
+use crate::flags::chunk_write_buffer_size;
 use crate::io::{ClickHouseRead, ClickHouseWrite};
 
 #[pin_project]
@@ -18,7 +19,16 @@ pub(super) struct ChunkWriter<W: ClickHouseWrite> {
 }
 
 impl<W: ClickHouseWrite> ChunkWriter<W> {
-    pub(super) fn new(inner: W) -> Self { Self { inner, buffer: Vec::new() } }
+    /// Creates a new `ChunkWriter` with a pre-allocated buffer.
+    ///
+    /// # v0.4.0 Optimisation
+    ///
+    /// Buffer is pre-allocated to 1MB (configurable via `CHUNK_WRITE_BUFFER_SIZE` env var)
+    /// to reduce allocation overhead during batch inserts. This matches the `ChunkReader`
+    /// buffer size and typical `ClickHouse` chunk sizes.
+    pub(super) fn new(inner: W) -> Self {
+        Self { inner, buffer: Vec::with_capacity(chunk_write_buffer_size()) }
+    }
 
     pub(super) async fn finish_chunk(&mut self) -> io::Result<()> {
         let len = self.buffer.len();

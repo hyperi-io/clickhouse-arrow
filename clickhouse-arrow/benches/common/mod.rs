@@ -64,7 +64,7 @@ pub(crate) fn setup_clickhouse_rs(ch: &'static ClickHouseContainer) -> ClickHous
         .with_url(ch.get_http_url())
         .with_user(&ch.user)
         .with_password(&ch.password)
-        .with_database("default")
+        .with_database(TEST_DB_NAME)
 }
 
 // Helper function to create test rows for clickhouse-rs

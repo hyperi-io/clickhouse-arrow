@@ -549,7 +549,14 @@ pub mod arrow_tests {
 
     /// # Errors
     pub async fn setup_table(client: &ArrowClient, db: &str, schema: &SchemaRef) -> Result<String> {
-        let create_options = CreateOptions::new("MergeTree").with_order_by(&["id".to_string()]);
+        // Use first column as ORDER BY key if schema doesn't have an 'id' column
+        let order_by_col = schema
+            .fields()
+            .iter()
+            .find(|f| f.name() == "id")
+            .or_else(|| schema.fields().first())
+            .map_or_else(|| "tuple()".to_string(), |f| f.name().to_string());
+        let create_options = CreateOptions::new("MergeTree").with_order_by(&[order_by_col]);
         let table_qid = Qid::new();
         let table_name = format!("test_table_{table_qid}");
         client
