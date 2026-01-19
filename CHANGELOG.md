@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-19
+
 ### Features
 
 - Add SIMD-accelerated null bitmap expansion for Arrow serialization
@@ -17,12 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ~21% improvement for 4KB allocations, ~5% for 64KB
 - Add query result limits (rows, batches, memory) for controlled resource usage
 - Add Variant/Dynamic/Nested/BFloat16 type support
+- Add E2E tests for new ClickHouse types
+- Add EXPLAIN query support with format parsing
 
 ### Performance
 
 - Combined serialization workload: **~1.48x faster** (10.2µs → 6.9µs for 10k rows)
 - Null bitmap expansion: **~2.2x speedup** vs naive implementation
 - Buffer pool raw API: **~21% faster** than Vec allocation for typical buffer sizes
+
+### CI
+
+- Add `ci` feature to avoid jemalloc/mimalloc mutual exclusion in CI builds
+- Fix clippy warnings for pedantic lint compliance
 
 ## [0.2.1] - 2025-12-14
 
