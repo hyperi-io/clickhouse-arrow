@@ -535,13 +535,27 @@ impl<T: ClientFormat> InternalConn<T> {
 }
 
 #[cfg(feature = "inner_pool")]
-impl<Data: Send + Sync + 'static> Operation<Data> {
-    /// Default helper method to calculate the "load" or weight an operation incurs
+impl<Data: Send + Sync + 'static + crate::formats::DataSize> Operation<Data> {
+    /// Calculate the "load" or weight an operation incurs.
+    ///
+    /// Returns 0 for small inserts (<1MB) to skip load balancing overhead.
+    /// This optimization avoids atomic counter updates for operations where
+    /// the load balancing benefit is outweighed by the overhead.
     pub(crate) fn weight(&self, finished: bool) -> u8 {
+        use crate::formats::SMALL_INSERT_THRESHOLD;
+
         match self {
             Operation::Query { .. } if finished => 1,
-            Operation::Query { .. } | Operation::InsertMany { .. } => 3,
-            Operation::Insert { .. } => 2,
+            Operation::Query { .. } => 3,
+            Operation::Insert { data, .. } => {
+                // Skip load balancing for small inserts
+                if data.data_size() < SMALL_INSERT_THRESHOLD { 0 } else { 2 }
+            }
+            Operation::InsertMany { data, .. } => {
+                // Calculate total size for batch inserts
+                let total_size: usize = data.iter().map(crate::formats::DataSize::data_size).sum();
+                if total_size < SMALL_INSERT_THRESHOLD { 0 } else { 3 }
+            }
             Operation::Ping { .. } => 0,
         }
     }

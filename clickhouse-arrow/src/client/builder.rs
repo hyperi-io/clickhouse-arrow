@@ -801,6 +801,70 @@ impl ClientBuilder {
         Self::build::<NativeFormat>(self).await
     }
 
+    /// Build an HTTP client for `ClickHouse` using `ArrowStream` format.
+    ///
+    /// This creates an [`HttpClient`](crate::http::HttpClient) that uses HTTP transport
+    /// instead of the native TCP protocol. The HTTP client uses `ClickHouse`'s
+    /// `FORMAT ArrowStream` for efficient Arrow data exchange.
+    ///
+    /// # Configuration
+    ///
+    /// The builder's configuration is mapped to HTTP options:
+    /// - `endpoint` → Base URL (use `http://` or `https://` scheme)
+    /// - `username` → X-ClickHouse-User header
+    /// - `database` → X-ClickHouse-Database header
+    ///
+    /// Note: For password authentication, use [`HttpOptions`](crate::http::HttpOptions)
+    /// directly with [`HttpClient::new`](crate::http::HttpClient::new).
+    ///
+    /// # Errors
+    /// - Returns an error if the URL cannot be parsed
+    /// - Returns an error if the HTTP client cannot be built
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use clickhouse_arrow::prelude::*;
+    ///
+    /// let client = ClientBuilder::new()
+    ///     .with_endpoint("http://localhost:8123")
+    ///     .with_username("default")
+    ///     .with_database("my_db")
+    ///     .build_http()?;
+    ///
+    /// let batches = client.query("SELECT * FROM my_table").await?;
+    /// ```
+    #[cfg(feature = "http")]
+    pub fn build_http(self) -> Result<crate::http::HttpClient> {
+        use crate::http::{HttpClient, HttpOptions};
+
+        let endpoint = self
+            .destination
+            .as_ref().map_or_else(|| "http://localhost:8123".to_string(), Destination::domain);
+
+        // Ensure the endpoint has a scheme
+        let url_str = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+            endpoint
+        } else {
+            format!("http://{endpoint}")
+        };
+
+        let mut options = HttpOptions::new(&url_str)
+            .map_err(|e| Error::Configuration(format!("Invalid URL: {e}")))?;
+
+        if !self.options.username.is_empty() && self.options.username != "default" {
+            options.user = Some(self.options.username);
+        }
+
+        options.database = if self.options.default_database.is_empty() {
+            None
+        } else {
+            Some(self.options.default_database)
+        };
+
+        HttpClient::new(options)
+    }
+
     /// Builds a connection pool manager for `ClickHouse` clients.
     ///
     /// This method creates a [`ConnectionManager<T>`] for managing a pool of

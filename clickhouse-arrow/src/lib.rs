@@ -222,6 +222,8 @@ pub mod limits;
 pub mod native;
 #[cfg(feature = "pool")]
 mod pool;
+#[cfg(feature = "http")]
+pub mod http;
 pub mod prelude;
 mod query;
 mod schema;

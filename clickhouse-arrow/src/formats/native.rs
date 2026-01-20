@@ -1,7 +1,7 @@
 use bytes::BytesMut;
 
-use super::DeserializerState;
 use super::protocol_data::{EmptyBlock, ProtocolData};
+use super::{DataSize, DeserializerState};
 use crate::Type;
 use crate::client::connection::ClientMetadata;
 use crate::compression::{DecompressionReader, compress_data_sync};
@@ -9,6 +9,11 @@ use crate::io::{ClickHouseRead, ClickHouseWrite};
 use crate::native::block::Block;
 use crate::native::protocol::CompressionMethod;
 use crate::prelude::*;
+
+impl DataSize for Block {
+    #[inline]
+    fn data_size(&self) -> usize { self.estimate_size() }
+}
 
 /// Marker for Native format.
 ///

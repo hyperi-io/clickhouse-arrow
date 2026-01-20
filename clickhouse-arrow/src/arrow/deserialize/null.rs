@@ -1,17 +1,29 @@
 /// Deserialization logic for `ClickHouse` `Nullable` types into Arrow arrays.
 ///
-/// This module provides a function to deserialize `ClickHouse`’s native format for `Nullable`
+/// This module provides a function to deserialize `ClickHouse`'s native format for `Nullable`
 /// types into Arrow arrays, handling nullability for any inner type (e.g., `Nullable(Int32)`,
 /// `Nullable(String)`, `Nullable(Array(T))`). It is used by the `ClickHouseArrowDeserializer`
 /// implementation in `deserialize.rs` to process nullable columns.
+///
+/// # Performance (v0.4.1)
+///
+/// Null mask reading uses tiered allocation strategy:
+/// - Small masks (<= 1024 bytes): Stack-allocated, zero heap allocation
+/// - Large masks: Heap-allocated with buffer reuse where possible
+///
+/// This eliminates per-column allocations for typical batch sizes (<=1024 rows).
 use arrow::array::ArrayRef;
 use arrow::datatypes::DataType;
 use tokio::io::AsyncReadExt;
 
+/// Stack buffer threshold for null masks (1024 rows = 1KB on stack).
+/// Typical `ClickHouse` blocks are 8192 rows, but many queries return smaller batches.
+const SMALL_MASK_THRESHOLD: usize = 1024;
+
 use super::ClickHouseArrowDeserializer;
 use crate::arrow::builder::TypedBuilder;
 use crate::io::{ClickHouseBytesRead, ClickHouseRead};
-use crate::{Error, Result, Type};
+use crate::{Result, Type};
 
 /// Deserializes a `ClickHouse` `Nullable` type into an Arrow array.
 ///
@@ -71,17 +83,28 @@ pub(crate) async fn deserialize_async<R: ClickHouseRead>(
     rows: usize,
     rbuffer: &mut Vec<u8>,
 ) -> Result<ArrayRef> {
-    let nulls = if rows > 0 {
-        let mut mask = vec![0u8; rows];
-        let _ = reader.read_exact(&mut mask).await?;
-        if mask.len() != rows {
-            return Err(Error::DeserializeError(format!("Nulls={}, rows={rows}", mask.len())));
-        }
-        mask
+    if rows == 0 {
+        return inner.deserialize_arrow_async(builder, reader, data_type, rows, &[], rbuffer).await;
+    }
+
+    // v0.4.1: Tiered allocation strategy for null masks
+    if rows <= SMALL_MASK_THRESHOLD {
+        // Stack-allocated path for small masks (zero heap allocation)
+        let mut stack_mask = [0u8; SMALL_MASK_THRESHOLD];
+        let mask_slice = &mut stack_mask[..rows];
+        let _ = reader.read_exact(mask_slice).await?;
+        inner.deserialize_arrow_async(builder, reader, data_type, rows, mask_slice, rbuffer).await
     } else {
-        vec![]
-    };
-    inner.deserialize_arrow_async(builder, reader, data_type, rows, &nulls, rbuffer).await
+        // Heap-allocated path for large masks (reuse rbuffer capacity)
+        rbuffer.clear();
+        rbuffer.resize(rows, 0u8);
+        let _ = reader.read_exact(rbuffer).await?;
+
+        // Clone mask since rbuffer is also used by inner deserializer
+        let nulls = rbuffer.clone();
+        rbuffer.clear();
+        inner.deserialize_arrow_async(builder, reader, data_type, rows, &nulls, rbuffer).await
+    }
 }
 
 #[allow(dead_code)] // TODO: remove once synchronous Arrow path is fully retired
@@ -93,18 +116,28 @@ pub(crate) fn deserialize<R: ClickHouseBytesRead>(
     rows: usize,
     rbuffer: &mut Vec<u8>,
 ) -> Result<ArrayRef> {
-    let nulls = if rows > 0 {
-        let mut mask = vec![0u8; rows];
-        reader.try_copy_to_slice(&mut mask)?;
-        if mask.len() != rows {
-            return Err(Error::DeserializeError(format!("Nulls={}, rows={rows}", mask.len())));
-        }
-        mask
-    } else {
-        vec![]
-    };
+    if rows == 0 {
+        return inner.deserialize_arrow(builder, reader, data_type, rows, &[], rbuffer);
+    }
 
-    inner.deserialize_arrow(builder, reader, data_type, rows, &nulls, rbuffer)
+    // v0.4.1: Tiered allocation strategy for null masks
+    if rows <= SMALL_MASK_THRESHOLD {
+        // Stack-allocated path for small masks (zero heap allocation)
+        let mut stack_mask = [0u8; SMALL_MASK_THRESHOLD];
+        let mask_slice = &mut stack_mask[..rows];
+        reader.try_copy_to_slice(mask_slice)?;
+        inner.deserialize_arrow(builder, reader, data_type, rows, mask_slice, rbuffer)
+    } else {
+        // Heap-allocated path for large masks
+        rbuffer.clear();
+        rbuffer.resize(rows, 0u8);
+        reader.try_copy_to_slice(rbuffer)?;
+
+        // Clone mask since rbuffer is also used by inner deserializer
+        let nulls = rbuffer.clone();
+        rbuffer.clear();
+        inner.deserialize_arrow(builder, reader, data_type, rows, &nulls, rbuffer)
+    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,19 @@ pub use native::NativeFormat;
 
 use crate::ArrowOptions;
 
+/// Trait for estimating the in-memory size of data.
+///
+/// This is used by the load balancer to skip load balancing overhead for small inserts.
+pub(crate) trait DataSize {
+    /// Returns the estimated size of the data in bytes.
+    fn data_size(&self) -> usize;
+}
+
+/// Threshold for "small" inserts that skip load balancing (1MB).
+/// Operations below this size use connection 0 with weight 0 to avoid atomic overhead.
+#[cfg(feature = "inner_pool")]
+pub(crate) const SMALL_INSERT_THRESHOLD: usize = 1024 * 1024;
+
 /// Marker trait for various client formats.
 ///
 /// Currently only two formats are in use: `ArrowFormat` and `NativeFormat`. This approach provides
@@ -15,7 +28,7 @@ use crate::ArrowOptions;
 /// overhead and a fullblown serde implementation.
 #[expect(private_bounds)]
 pub trait ClientFormat: sealed::ClientFormatImpl<Self::Data> + Send + Sync + 'static {
-    type Data: std::fmt::Debug + Clone + Send + Sync + 'static;
+    type Data: std::fmt::Debug + Clone + Send + Sync + DataSize + 'static;
 
     const FORMAT: &'static str;
 }

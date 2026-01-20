@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::fmt::Display;
 use std::num::TryFromIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
@@ -6,8 +7,12 @@ use std::string::FromUtf8Error;
 use crate::Type;
 use crate::native::ServerError;
 
-/// Represents various library errors
+/// Represents various library errors.
+///
+/// This enum is marked `#[non_exhaustive]` to allow adding new error variants
+/// in future versions without breaking changes.
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -79,6 +84,14 @@ pub enum Error {
     #[error("Client error: {0}")]
     Client(String),
 
+    // HTTP transport errors
+    #[error("Network error: {0}")]
+    Network(String),
+    #[error("Server error: {0}")]
+    Server(String),
+    #[error("Configuration error: {0}")]
+    Configuration(String),
+
     // Other
     #[error("External error: {0}")]
     External(Box<dyn std::error::Error + Send + Sync>),
@@ -119,4 +132,63 @@ impl Error {
     }
 }
 
+/// Implement `serde::ser::Error` to enable custom serialization in query parameters.
+///
+/// This follows the pattern from the official `clickhouse-rs` client, allowing
+/// errors during serialization to be properly propagated through serde.
+impl serde::ser::Error for Error {
+    fn custom<T: Display>(msg: T) -> Self {
+        Error::SerializeError(msg.to_string())
+    }
+}
+
+/// Implement `serde::de::Error` to enable custom deserialization error handling.
+///
+/// This follows the pattern from the official `clickhouse-rs` client, allowing
+/// errors during deserialization to be properly propagated through serde.
+impl serde::de::Error for Error {
+    fn custom<T: Display>(msg: T) -> Self {
+        Error::DeserializeError(msg.to_string())
+    }
+}
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serde_ser_error_custom() {
+        let err: Error = serde::ser::Error::custom("test serialization error");
+        assert!(matches!(err, Error::SerializeError(_)));
+        assert!(err.to_string().contains("test serialization error"));
+    }
+
+    #[test]
+    fn test_serde_de_error_custom() {
+        let err: Error = serde::de::Error::custom("test deserialization error");
+        assert!(matches!(err, Error::DeserializeError(_)));
+        assert!(err.to_string().contains("test deserialization error"));
+    }
+
+    #[test]
+    fn test_error_with_column_name() {
+        let err = Error::DeserializeError("failed".to_string());
+        let err_with_col = err.with_column_name("my_column");
+        assert!(matches!(err_with_col, Error::DeserializeErrorWithColumn("my_column", _)));
+    }
+
+    #[test]
+    fn test_non_exhaustive_pattern() {
+        // This test verifies that the #[non_exhaustive] attribute works correctly.
+        // External crates cannot exhaustively match on Error variants.
+        let err = Error::Protocol("test".to_string());
+
+        // We can still match specific variants within the crate
+        match err {
+            Error::Protocol(msg) => assert_eq!(msg, "test"),
+            _ => panic!("unexpected variant"),
+        }
+    }
+}

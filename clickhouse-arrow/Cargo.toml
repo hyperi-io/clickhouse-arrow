@@ -42,6 +42,8 @@ geo-types = ["dep:geo-types"]
 cloud = ["dep:ureq"]
 # Enable `rust_decimal` types for serialization and deserialization
 rust_decimal = ["dep:rust_decimal"]
+# Enable HTTP transport with ArrowStream format (alternative to native TCP protocol)
+http = ["dep:reqwest", "dep:url"]
 
 # -- Performance --
 # Use jemalloc allocator (recommended for servers with large allocations)
@@ -131,6 +133,8 @@ mimalloc = { version = ">=0.1.48", optional = true }
 tokio-uring = { version = "0.5", optional = true }
 tracing-subscriber = { version = ">=0.3", features = ["fmt", "env-filter"], optional = true }
 ureq = { version = "3", features = ["rustls", "gzip", "json"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "zstd", "stream"], optional = true }
+url = { version = "2", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["async_tokio", "html_reports"] }
@@ -165,6 +169,10 @@ required-features = ["test-utils"]
 [[test]]
 name = "e2e_new_types"
 required-features = ["test-utils"]
+
+[[test]]
+name = "e2e_http"
+required-features = ["test-utils", "http"]
 
 # EXAMPLES
 

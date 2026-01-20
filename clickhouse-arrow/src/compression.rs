@@ -10,6 +10,29 @@
 /// - Decompresses LZ4-compressed data with `decompress_data`, including checksum validation.
 /// - Provides `DecompressionReader` for async reading of decompressed data streams.
 ///
+/// # Compression Frame Format
+///
+/// `ClickHouse` uses a custom compression frame format for both LZ4 and ZSTD:
+///
+/// ```text
+/// ┌─────────────────────────────────────────────────────────────────┐
+/// │ Offset │ Size   │ Description                                   │
+/// ├────────┼────────┼───────────────────────────────────────────────┤
+/// │ 0      │ 8      │ CityHash128 checksum (high 64 bits)           │
+/// │ 8      │ 8      │ CityHash128 checksum (low 64 bits)            │
+/// │ 16     │ 1      │ Compression method byte:                      │
+/// │        │        │   - 0x82: LZ4                                 │
+/// │        │        │   - 0x90: ZSTD                                │
+/// │ 17     │ 4      │ Compressed size (little-endian u32)           │
+/// │        │        │   Includes 9-byte header (method + sizes)     │
+/// │ 21     │ 4      │ Decompressed size (little-endian u32)         │
+/// │ 25     │ N      │ Compressed payload                            │
+/// └────────┴────────┴───────────────────────────────────────────────┘
+/// ```
+///
+/// The checksum covers bytes 16 through end (method byte + sizes + payload).
+/// This matches the format used by `clickhouse-rs` and the official C++ client.
+///
 /// # `ClickHouse` Reference
 /// See the [ClickHouse Native Protocol Documentation](https://clickhouse.com/docs/en/interfaces/tcp)
 /// for details on compression in the native protocol.

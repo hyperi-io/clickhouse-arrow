@@ -11,6 +11,10 @@ use crate::io::{ClickHouseBytesRead, ClickHouseRead};
 use crate::native::types::low_cardinality::*;
 use crate::{Error, Result, Type};
 
+/// Stack buffer threshold for dictionary null masks (1024 entries = 1KB on stack).
+/// `LowCardinality` dictionaries are typically small (< 1000 unique values).
+const SMALL_DICT_MASK_THRESHOLD: usize = 1024;
+
 /// Deserializes a `ClickHouse` `LowCardinality` column into an Arrow `DictionaryArray<Int32Type>`.
 ///
 /// The `LowCardinality` type in `ClickHouse` is a dictionary-encoded column that stores a
@@ -127,26 +131,32 @@ pub(crate) async fn deserialize_async<R: ClickHouseRead>(
     let dictionary = if needs_global_dictionary || needs_update_dictionary || has_additional_keys {
         // If the inner type is nullable, then the first value deserialized will be a "default"
         // value. Use the null mask to enforce this. The serializer does not write a null
-        let null_mask = if inner.is_nullable() {
-            let mut mask = vec![0_u8; dict_size];
-            mask[0] = 1;
-            mask
+        // v0.4.1: Use stack allocation for small dictionaries to avoid heap allocation
+        if inner.is_nullable() {
+            if dict_size <= SMALL_DICT_MASK_THRESHOLD {
+                // Stack-allocated path for small dictionaries (zero heap allocation)
+                let mut stack_mask = [0u8; SMALL_DICT_MASK_THRESHOLD];
+                stack_mask[0] = 1;
+                let mask_slice = &stack_mask[..dict_size];
+                inner
+                    .strip_null()
+                    .deserialize_arrow_async(value_builder, reader, value_type, dict_size, mask_slice, rbuffer)
+                    .await?
+            } else {
+                // Heap-allocated path for large dictionaries
+                let mut mask = vec![0_u8; dict_size];
+                mask[0] = 1;
+                inner
+                    .strip_null()
+                    .deserialize_arrow_async(value_builder, reader, value_type, dict_size, &mask, rbuffer)
+                    .await?
+            }
         } else {
-            vec![]
-        };
-
-        inner
-            .strip_null()
-            .deserialize_arrow_async(
-                value_builder,
-                reader,
-                value_type,
-                dict_size,
-                &null_mask,
-                rbuffer,
-            )
-            .await?
-
+            inner
+                .strip_null()
+                .deserialize_arrow_async(value_builder, reader, value_type, dict_size, &[], rbuffer)
+                .await?
+        }
     // No dictionary found
     } else {
         return Err(Error::DeserializeError("LowCardinality: no dictionary provided".to_string()));
@@ -244,23 +254,29 @@ pub(crate) fn deserialize<R: ClickHouseBytesRead>(
     let dictionary = if needs_global_dictionary || needs_update_dictionary || has_additional_keys {
         // If the inner type is nullable, then the first value deserialized will be a "default"
         // value. Use the null mask to enforce this. The serializer does not write a null
-        let null_mask = if inner_type.is_nullable() {
-            let mut mask = vec![0_u8; dict_size];
-            mask[0] = 1;
-            mask
+        // v0.4.1: Use stack allocation for small dictionaries to avoid heap allocation
+        if inner_type.is_nullable() {
+            if dict_size <= SMALL_DICT_MASK_THRESHOLD {
+                // Stack-allocated path for small dictionaries (zero heap allocation)
+                let mut stack_mask = [0u8; SMALL_DICT_MASK_THRESHOLD];
+                stack_mask[0] = 1;
+                let mask_slice = &stack_mask[..dict_size];
+                inner_type.strip_null().deserialize_arrow(
+                    value_builder, reader, value_type, dict_size, mask_slice, rbuffer,
+                )?
+            } else {
+                // Heap-allocated path for large dictionaries
+                let mut mask = vec![0_u8; dict_size];
+                mask[0] = 1;
+                inner_type.strip_null().deserialize_arrow(
+                    value_builder, reader, value_type, dict_size, &mask, rbuffer,
+                )?
+            }
         } else {
-            vec![]
-        };
-
-        inner_type.strip_null().deserialize_arrow(
-            value_builder,
-            reader,
-            value_type,
-            dict_size,
-            &null_mask,
-            rbuffer,
-        )?
-
+            inner_type.strip_null().deserialize_arrow(
+                value_builder, reader, value_type, dict_size, &[], rbuffer,
+            )?
+        }
     // No dictionary found
     } else {
         return Err(Error::DeserializeError("LowCardinality: no dictionary provided".to_string()));

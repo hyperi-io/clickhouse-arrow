@@ -258,6 +258,35 @@ unsafe fn expand_null_bitmap_neon(bitmap: &[u8], output: &mut [u8], len: usize) 
 }
 
 // ============================================================================
+// BUFFER SIZE CONSTANTS
+// ============================================================================
+
+/// Minimum chunk size for progressive sending (254 KB).
+///
+/// This value is chosen to fit comfortably within a 256 KB buffer while allowing
+/// for header overhead. Following the `clickhouse-rs` pattern, data is sent in
+/// chunks when the buffer exceeds this threshold.
+///
+/// # Usage
+/// - For streaming inserts, flush when buffer exceeds this size
+/// - Prevents memory buildup for large batch inserts
+pub const MIN_CHUNK_SIZE: usize = 254 * 1024;
+
+/// Default buffer allocation size (256 KB).
+///
+/// Used for pre-allocation of serialization buffers. This size balances:
+/// - Memory efficiency (not too large for small operations)
+/// - Performance (reduces reallocations for typical batch sizes)
+/// - Alignment (power of 2 for efficient memory allocation)
+pub const DEFAULT_BUFFER_SIZE: usize = 256 * 1024;
+
+/// Default buffer size for `ArrowStream` serialization (1 MB).
+///
+/// Larger than [`DEFAULT_BUFFER_SIZE`] because Arrow batches typically
+/// contain more data than native protocol blocks.
+pub const ARROW_STREAM_BUFFER_SIZE: usize = 1024 * 1024;
+
+// ============================================================================
 // VARINT ENCODING/DECODING
 // ============================================================================
 
