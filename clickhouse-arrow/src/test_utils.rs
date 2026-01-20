@@ -555,7 +555,7 @@ pub mod arrow_tests {
             .iter()
             .find(|f| f.name() == "id")
             .or_else(|| schema.fields().first())
-            .map_or_else(|| "tuple()".to_string(), |f| f.name().to_string());
+            .map_or_else(|| "tuple()".to_string(), |f| f.name().clone());
         let create_options = CreateOptions::new("MergeTree").with_order_by(&[order_by_col]);
         let table_qid = Qid::new();
         let table_name = format!("test_table_{table_qid}");
