@@ -3,6 +3,19 @@
 # Based on the excellent Polars release workflow:
 # https://github.com/pola-rs/polars/blob/main/.github/workflows/release-python.yml
 # Thank you to the Polars team for their outstanding work!
+#
+# Runner Configuration:
+# This workflow supports custom runners via GitHub Variables for cost/speed optimisation.
+# Set these variables at org/repo level to override defaults:
+#   - GH_RUNNER_LINUX_X64:    Default 'ubuntu-latest'
+#   - GH_RUNNER_LINUX_ARM64:  Default 'ubuntu-24.04-arm' (public repos only)
+#   - GH_RUNNER_MACOS_X64:    Default 'macos-13'
+#   - GH_RUNNER_MACOS_ARM64:  Default 'macos-14'
+#   - GH_RUNNER_WINDOWS_X64:  Default 'windows-latest'
+#
+# Example BuildJet configuration:
+#   GH_RUNNER_LINUX_X64:   buildjet-4vcpu-ubuntu-2204
+#   GH_RUNNER_LINUX_ARM64: buildjet-2vcpu-ubuntu-2204-arm
 
 name: Release Python
 
@@ -42,7 +55,7 @@ jobs:
   # Build source distribution
   create-sdist:
     name: Build sdist
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_LINUX_X64 || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,52 +79,16 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  # Build wheels for multiple platforms
-  build-wheels:
-    name: Build wheels (${{ matrix.job_config }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux x86_64
-          - job_config: linux-x64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-
-          # Linux aarch64
-          - job_config: linux-arm64
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-
-          # Linux musl x86_64 (Alpine)
-          - job_config: linux-musl-x64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-
-          # macOS x86_64 (Intel)
-          - job_config: macos-x64
-            os: macos-13
-            target: x86_64-apple-darwin
-
-          # macOS aarch64 (Apple Silicon)
-          - job_config: macos-arm64
-            os: macos-14
-            target: aarch64-apple-darwin
-
-          # Windows x86_64
-          - job_config: win-x64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-
+  # Build wheels - Linux x86_64
+  build-linux-x64:
+    name: Build wheels (linux-x64)
+    runs-on: ${{ vars.GH_RUNNER_LINUX_X64 || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.sha }}
 
-      # Avoid potential out-of-memory errors on Linux
-      - name: Set swap space for Linux
-        if: runner.os == 'Linux'
+      - name: Set swap space
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
@@ -121,23 +98,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Set jemalloc page size for aarch64 Linux
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
-
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
           command: build
-          target: ${{ matrix.target }}
+          target: x86_64-unknown-linux-gnu
           args: --release --manifest-path py-clickhouse-arrow/Cargo.toml --out dist
           manylinux: auto
           maturin-version: ${{ env.MATURIN_VERSION }}
           sccache: 'true'
 
       - name: Test wheel
-        # Skip musl targets (missing on standard ubuntu images)
-        if: contains(matrix.target, '-musl') == false
         run: |
           pip install --force-reinstall --verbose dist/*.whl
           python -c "import clickhouse_arrow; print(f'clickarrow {clickhouse_arrow.__version__}')"
@@ -145,14 +116,203 @@ jobs:
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.job_config }}
+          name: wheel-linux-x64
+          path: dist/*.whl
+
+  # Build wheels - Linux ARM64
+  build-linux-arm64:
+    name: Build wheels (linux-arm64)
+    runs-on: ${{ vars.GH_RUNNER_LINUX_ARM64 || 'ubuntu-24.04-arm' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Set swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set jemalloc page size
+        run: echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: aarch64-unknown-linux-gnu
+          args: --release --manifest-path py-clickhouse-arrow/Cargo.toml --out dist
+          manylinux: auto
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          sccache: 'true'
+
+      - name: Test wheel
+        run: |
+          pip install --force-reinstall --verbose dist/*.whl
+          python -c "import clickhouse_arrow; print(f'clickarrow {clickhouse_arrow.__version__}')"
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux-arm64
+          path: dist/*.whl
+
+  # Build wheels - Linux musl x86_64 (Alpine)
+  build-linux-musl-x64:
+    name: Build wheels (linux-musl-x64)
+    runs-on: ${{ vars.GH_RUNNER_LINUX_X64 || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Set swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: x86_64-unknown-linux-musl
+          args: --release --manifest-path py-clickhouse-arrow/Cargo.toml --out dist
+          manylinux: auto
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          sccache: 'true'
+
+      # Skip test - musl wheels can't be tested on glibc systems
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux-musl-x64
+          path: dist/*.whl
+
+  # Build wheels - macOS x86_64 (Intel)
+  build-macos-x64:
+    name: Build wheels (macos-x64)
+    runs-on: ${{ vars.GH_RUNNER_MACOS_X64 || 'macos-13' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: x86_64-apple-darwin
+          args: --release --manifest-path py-clickhouse-arrow/Cargo.toml --out dist
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          sccache: 'true'
+
+      - name: Test wheel
+        run: |
+          pip install --force-reinstall --verbose dist/*.whl
+          python -c "import clickhouse_arrow; print(f'clickarrow {clickhouse_arrow.__version__}')"
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-macos-x64
+          path: dist/*.whl
+
+  # Build wheels - macOS ARM64 (Apple Silicon)
+  build-macos-arm64:
+    name: Build wheels (macos-arm64)
+    runs-on: ${{ vars.GH_RUNNER_MACOS_ARM64 || 'macos-14' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: aarch64-apple-darwin
+          args: --release --manifest-path py-clickhouse-arrow/Cargo.toml --out dist
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          sccache: 'true'
+
+      - name: Test wheel
+        run: |
+          pip install --force-reinstall --verbose dist/*.whl
+          python -c "import clickhouse_arrow; print(f'clickarrow {clickhouse_arrow.__version__}')"
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-macos-arm64
+          path: dist/*.whl
+
+  # Build wheels - Windows x86_64
+  build-windows-x64:
+    name: Build wheels (win-x64)
+    runs-on: ${{ vars.GH_RUNNER_WINDOWS_X64 || 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: x86_64-pc-windows-msvc
+          args: --release --manifest-path py-clickhouse-arrow/Cargo.toml --out dist
+          maturin-version: ${{ env.MATURIN_VERSION }}
+          sccache: 'true'
+
+      - name: Test wheel
+        run: |
+          pip install --force-reinstall --verbose dist/*.whl
+          python -c "import clickhouse_arrow; print(f'clickarrow {clickhouse_arrow.__version__}')"
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-win-x64
           path: dist/*.whl
 
   # Publish to PyPI
   publish-to-pypi:
     name: Publish to PyPI
-    needs: [create-sdist, build-wheels]
-    runs-on: ubuntu-latest
+    needs:
+      - create-sdist
+      - build-linux-x64
+      - build-linux-arm64
+      - build-linux-musl-x64
+      - build-macos-x64
+      - build-macos-arm64
+      - build-windows-x64
+    runs-on: ${{ vars.GH_RUNNER_LINUX_X64 || 'ubuntu-latest' }}
     # Only publish on tag push or when dry-run is false
     if: github.event_name == 'push' || inputs.dry-run == false
     environment:
@@ -184,7 +344,7 @@ jobs:
   publish-to-github:
     name: Create GitHub Release
     needs: [publish-to-pypi]
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_LINUX_X64 || 'ubuntu-latest' }}
     permissions:
       contents: write
 
