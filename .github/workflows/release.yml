@@ -139,3 +139,11 @@ jobs:
           name: Release v${{ env.VERSION }}
           files: |
             docs-${{ env.VERSION }}.tar.gz
+
+      # Trigger Python rebuild – wheels depend on core Rust crate
+      - name: Trigger Python release rebuild
+        if: ${{ inputs.skip_publish == false }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          event-type: rust-release
+          client-payload: '{"rust_version": "${{ env.VERSION }}"}'

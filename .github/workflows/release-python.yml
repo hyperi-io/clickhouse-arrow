@@ -10,6 +10,8 @@ on:
   push:
     tags:
       - "py-v*"  # e.g., py-v0.1.0
+  repository_dispatch:
+    types: [rust-release]  # Triggered when core Rust crate is released
   workflow_dispatch:
     inputs:
       # Latest commit to include with the release. If omitted, use the latest commit on the main branch.
