@@ -25,41 +25,42 @@ A high-performance, async Rust client for `ClickHouse` with native Arrow integra
 
 ### Benchmarks
 
-All benchmarks run on Apple M2 Pro (12-core) with 16GB RAM using `ClickHouse` 25.5.2.47 and Rust 1.89.0 with LTO optimizations.
+**System:** AMD Ryzen 9 5900X (20 vCPUs), 32GB RAM, ClickHouse 25.12.3, Rust 1.89.0 with LTO.
 
-#### Query Performance (500M rows)
-- **clickhouse-arrow**: 3.68s (19% faster than clickhouse-rs)
-- **clickhouse-rs**: 4.56s
+#### Insert Performance
 
-#### Insert Performance Summary
+| Rows | No Compression | LZ4     |
+|------|----------------|---------|
+| 10k  | 5.6ms          | 6.1ms   |
+| 100k | 39.5ms         | 47.7ms  |
+| 200k | 87.8ms         | 106.8ms |
+| 300k | 140.6ms        | 168.0ms |
+| 400k | 200.5ms        | 209.0ms |
 
-| Rows | clickhouse-arrow (none) | clickhouse-arrow (LZ4) | clickhouse-rs (none) | clickhouse-rs (LZ4) |
-|------|------------------------|------------------------|---------------------|-------------------|
-| 10k  | 5.60ms                 | 5.20ms                 | 6.16ms              | 7.53ms            |
-| 100k | 41.97ms                | 42.12ms                | 47.30ms             | 51.66ms           |
-| 200k | 97.21ms                | 116.81ms               | 126.67ms            | 134.28ms          |
-| 300k | 143.06ms               | 160.53ms               | 196.39ms            | 183.42ms          |
-| 400k | 188.21ms               | 223.60ms               | 255.80ms            | 303.35ms          |
+#### Query Performance
 
-**Key Performance Insights:**
-- **Arrow format** consistently outperforms row binary format by 10-25%
-- **Query performance** is 19% faster with Arrow format
-- **LZ4 compression** shows mixed results - beneficial for smaller datasets, slight overhead for larger ones
-- **Zero-Copy** with arrow integration, enables zero-copy data transfer where possible
-- **Throughput scales** linearly with dataset size
-- **Connection Pooling**, using the `pool` feature enables connection reuse for better throughput
+| Rows | Time    |
+|------|---------|
+| 10k  | 5.7ms   |
+| 100k | 24.5ms  |
+| 200k | 36.7ms  |
+| 300k | 46.5ms  |
+| 400k | 60.4ms  |
 
-#### Internal Optimizations
+#### Internal SIMD Optimisations
 
-The serialization hot path includes SIMD-accelerated operations and memory pooling:
+| Operation             | Speedup   | Description                                          |
+|-----------------------|-----------|------------------------------------------------------|
+| Null bitmap expansion | **~2.3x** | AVX2 SIMD for Arrow→ClickHouse null conversion       |
+| Buffer allocation     | **~21%**  | Size-tiered buffer pool reduces allocator pressure   |
+| Combined workload     | **~1.5x** | Overall serialisation (11.0µs → 7.1µs for 10k rows)  |
 
-| Operation | Improvement | Description |
-|-----------|-------------|-------------|
-| Null bitmap expansion | **~2.2x faster** | AVX2 SIMD on x86_64 for Arrow→ClickHouse null conversion |
-| Buffer allocation | **~21% faster** | Size-tiered buffer pool reduces allocator pressure |
-| Combined workload | **~1.48x faster** | Overall serialization improvement (10.2µs → 6.9µs for 10k rows) |
+**Key insights:**
 
-These optimizations are applied automatically - no configuration needed.
+- **LZ4 compression** adds ~10-20% overhead for CPU-bound inserts (beneficial over network)
+- **Zero-copy** Arrow integration minimises memory allocations
+- **Linear scaling** with dataset size
+- **Connection pooling** (`pool` feature) recommended for sustained throughput
 
 ### Running Benchmarks
 
