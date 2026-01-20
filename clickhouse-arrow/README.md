@@ -1,8 +1,8 @@
-# 🛰️ `ClickHouse` *Native Protocol* Rust Client w/ Arrow Compatibility
+# ClickHouse Native Protocol Rust Client w/ Arrow Compatibility
 
-`ClickHouse` access in rust over `ClickHouse`'s native protocol.
+Native TCP ClickHouse client with Apache Arrow integration. v0.4.2 "Life the Universe and Everything".
 
-Currently supports revision `54479`, `DBMS_MIN_REVISION_WITH_VERSIONED_CLUSTER_FUNCTION_PROTOCOL`, the latest revision as of June 2025.
+Supports protocol revision `54479` (ClickHouse 25.x).
 
 [![Crates.io](https://img.shields.io/crates/v/clickhouse-arrow.svg)](https://crates.io/crates/clickhouse-arrow)
 [![Documentation](https://docs.rs/clickhouse-arrow/badge.svg)](https://docs.rs/clickhouse-arrow)
@@ -14,13 +14,12 @@ A high-performance, async Rust client for `ClickHouse` with native Arrow integra
 
 ## Why clickhouse-arrow?
 
-- **🚀 Performance**: Optimized for speed with zero-copy deserialization where possible
-- **🎯 Arrow Native**: First-class Apache Arrow support for efficient data interchange
-- **📊 90%+ Test Coverage**: Comprehensive test suite ensuring reliability
-- **🔄 Async/Await**: Modern async API built on Tokio
-- **🗜️ Compression**: LZ4 and ZSTD support for efficient data transfer
-- **☁️ Cloud Ready**: Full `ClickHouse` Cloud compatibility
-- **🛡️ Type Safe**: Compile-time type checking with the `#[derive(Row)]` macro
+- **Performance** – Zero-copy where possible, SIMD-accelerated serialisation
+- **Arrow Native** – First-class RecordBatch support for data interchange
+- **Async/Await** – Modern async API on Tokio
+- **Compression** – LZ4 (default) and ZSTD support
+- **Cloud Ready** – ClickHouse Cloud compatible
+- **Type Safe** – Compile-time checking with `#[derive(Row)]` macro
 
 ## Performance
 
