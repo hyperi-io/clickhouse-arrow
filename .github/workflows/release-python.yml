@@ -187,10 +187,11 @@ jobs:
           path: dist/*.whl
 
   # Build wheels - macOS x86_64 (Intel)
-  # Note: Cross-compiling from ARM64 runner since macos-13 is retired
+  # Uses macos-15-intel native runner (available until Aug 2027)
+  # See: https://github.com/actions/runner-images/issues/13045
   build-macos-x64:
     name: Build wheels (macos-x64)
-    runs-on: macos-14
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
         with:
