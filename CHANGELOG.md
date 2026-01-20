@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-01-20
+
+### Features
+
+- **HTTP transport** - Alternative HTTP client using ArrowStream format for environments requiring HTTP-only egress
+- **Python bindings** (`py-clickhouse-arrow`) - Native protocol bindings for Python via PyO3/maturin
+
+### Bug Fixes
+
+- **Sparse deserialisation** (fixes #96) - Correctly handle sparse column serialisation from MergeTree tables
+  - Must consume all VarUInt offsets until END_OF_GRANULE_FLAG to keep stream aligned
+  - Added comprehensive sparse tests covering edge cases, wide type variety, nullable columns
+
+### Performance
+
+- Code style cleanup – trimmed verbose LLM-style docstrings for readability
+
 ## [0.4.0] - 2026-01-19
 
 ### Features

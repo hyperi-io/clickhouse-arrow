@@ -1,30 +1,11 @@
-/// Serialization logic for nullability bitmaps in `ClickHouse`'s native format.
-///
-/// This module provides functions to serialize nullability bitmaps for Arrow arrays, used by
-/// the `ClickHouseArrowSerializer` implementation in `types.rs` for nullable types. It writes
-/// a bitmap where `1` represents a null value and `0` represents a non-null value, as expected
-/// by `ClickHouse`.
-///
-/// # Performance
-///
-/// Incorporates optimisations from `HyperSec` DFE (Data Format Engine) loader:
-///
-/// - **SIMD acceleration**: Uses AVX2 (`x86_64`) or NEON (`aarch64`) for bit expansion
-/// - **Buffer pooling**: Reuses allocations in hot paths
-/// - **Vectored I/O** (v0.4.0): Adapted from DFE-loader syscall reduction patterns,
-///   combines null bitmap + values into single syscall (15-25% reduction)
-///
-/// # Examples
-/// ```rust,ignore
-/// use arrow::array::Int32Array;
-/// use clickhouse_arrow::types::null::write_nullability;
-/// use std::sync::Arc;
-/// use tokio::io::AsyncWriteExt;
-///
-/// let array = Arc::new(Int32Array::from(vec![Some(1), None, Some(3)])) as ArrayRef;
-/// let mut buffer = Vec::new();
-/// write_nullability(&mut buffer, &array).await.unwrap();
-/// ```
+//! Nullability bitmap serialisation for ClickHouse native format.
+//!
+//! Writes a bitmap where 1=null, 0=valid (opposite of Arrow's convention).
+//!
+//! Performance tricks in here:
+//! - SIMD bit expansion (see simd.rs) – ~2.2x faster than naive
+//! - Buffer pooling – avoids malloc/free per column
+//! - Vectored I/O – combines null bitmap + values in one syscall, 15-25% fewer syscalls
 use std::io::IoSlice;
 
 use arrow::array::ArrayRef;
@@ -35,10 +16,7 @@ use crate::io::{ClickHouseBytesWrite, ClickHouseWrite};
 use crate::simd::{PooledBuffer, expand_null_bitmap};
 use crate::{Result, Type};
 
-/// Prepare null bitmap buffer for an array.
-///
-/// Returns a pooled buffer containing the expanded null bitmap (1=null, 0=valid).
-/// Used by both standard and vectored I/O paths.
+/// Prepare expanded null bitmap (1=null, 0=valid) in a pooled buffer.
 #[inline]
 pub(super) fn prepare_null_bitmap(array: &ArrayRef) -> PooledBuffer {
     let len = array.len();
@@ -53,19 +31,8 @@ pub(super) fn prepare_null_bitmap(array: &ArrayRef) -> PooledBuffer {
     null_mask
 }
 
-/// Write nullable primitive data using vectored I/O (single syscall).
-///
-/// Combines null bitmap + values buffer into a single `write_vectored` call,
-/// reducing syscall overhead by 15-25% for nullable primitive columns.
-///
-/// # Arguments
-/// - `type_hint`: The `ClickHouse` `Type` for validation
-/// - `writer`: The async writer
-/// - `array`: The Arrow array containing nullability information
-/// - `values_bytes`: Pre-computed values buffer (from `bytemuck::cast_slice`)
-///
-/// # Performance
-/// This avoids two separate `write_all` calls by using `IoSlice` to batch them.
+/// Write nullable primitive data w/ vectored I/O (single syscall).
+/// Combines null bitmap + values into one write – 15-25% fewer syscalls.
 pub(super) async fn write_nullable_vectored<W: ClickHouseWrite>(
     type_hint: &Type,
     writer: &mut W,
@@ -96,21 +63,8 @@ pub(super) async fn write_nullable_vectored<W: ClickHouseWrite>(
     Ok(())
 }
 
-/// Serializes the nullability bitmap for an Arrow array to `ClickHouse`’s native format.
-///
-/// Writes a bitmap where `1` indicates a null value and `0` indicates a non-null value. If the
-/// array has a null buffer, it constructs the bitmap based on valid indices. If no null buffer
-/// exists, it writes a zeroed bitmap (all `0`).
-///
-/// # Arguments
-/// - `writer`: The async writer to serialize to (e.g., a TCP stream).
-/// - `array`: The Arrow array containing the nullability information.
-///
-/// # Returns
-/// A `Result` indicating success or a `Error` if writing fails.
-///
-/// # Errors
-/// - Returns `Io` if writing to the writer fails.
+/// Serialize null bitmap for an Arrow array (async).
+/// Writes 1 for null, 0 for valid. No-op for arrays/maps (ClickHouse doesn't support nullable arrays).
 pub(super) async fn serialize_nulls_async<W: ClickHouseWrite>(
     type_hint: &Type,
     writer: &mut W,

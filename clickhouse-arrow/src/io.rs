@@ -5,7 +5,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::native::protocol::MAX_STRING_SIZE;
 use crate::{Error, Result};
 
-/// An extension trait on [`AsyncRead`] providing `ClickHouse` specific functionality.
+/// Extension trait on AsyncRead for ClickHouse wire protocol.
 pub(crate) trait ClickHouseRead: AsyncRead + Unpin + Send + Sync {
     fn read_var_uint(&mut self) -> impl Future<Output = Result<u64>> + Send + '_;
 
@@ -49,7 +49,7 @@ impl<T: AsyncRead + Unpin + Send + Sync> ClickHouseRead for T {
     }
 }
 
-/// An extension trait on [`AsyncWrite`] providing `ClickHouse` specific functionality.
+/// Extension trait on AsyncWrite for ClickHouse wire protocol.
 pub(crate) trait ClickHouseWrite: AsyncWrite + Unpin + Send + Sync {
     fn write_var_uint(&mut self, value: u64) -> impl Future<Output = Result<()>> + Send + '_;
 
@@ -58,10 +58,7 @@ pub(crate) trait ClickHouseWrite: AsyncWrite + Unpin + Send + Sync {
         value: V,
     ) -> impl Future<Output = Result<()>> + Send + use<'_, Self, V>;
 
-    /// Write multiple buffers in a single syscall using vectored I/O.
-    ///
-    /// Combines null bitmap + values into one write for nullable columns,
-    /// reducing syscall overhead by 15-25% for nullable primitive columns.
+    /// Write multiple buffers in one syscall (vectored I/O).
     fn write_vectored_all<'a>(
         &'a mut self,
         bufs: &'a mut [IoSlice<'a>],
@@ -165,7 +162,7 @@ impl<T: AsyncWrite + Unpin + Send + Sync> ClickHouseWrite for T {
     }
 }
 
-#[allow(dead_code)] // TODO: remove once synchronous Arrow path is fully retired
+#[allow(dead_code)] // sync Arrow path may be retired eventually
 pub(crate) trait ClickHouseBytesRead: bytes::Buf {
     fn try_get_var_uint(&mut self) -> Result<u64>;
 

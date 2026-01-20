@@ -1,74 +1,22 @@
-//! SIMD-accelerated operations for hot path performance.
+//! SIMD and buffer pooling for hot paths.
 //!
-//! This module provides platform-specific SIMD implementations for performance-critical
-//! operations like null bitmap expansion, endian conversion, and bulk data processing.
+//! Why bother? Insert/query throughput is dominated by serialisation time.
+//! These optimisations target the inner loops that run millions of times per batch:
 //!
-//! # Architecture Support
+//! - **Null bitmap expansion**: Every nullable column needs Arrow's packed bits
+//!   expanded to ClickHouse's byte-per-value format. SIMD gives ~2.2x speedup.
+//! - **Buffer pooling**: Avoids malloc/free churn in the serialisation loop.
+//!   ~21% faster for 4KB buffers (common for null masks), ~5% for 64KB.
 //!
-//! - **`x86_64`**: Uses AVX2/SSE2 intrinsics when available
-//! - **aarch64**: Uses NEON intrinsics when available (placeholder, currently scalar)
-//! - **Fallback**: Scalar implementations for other platforms
-//!
-//! # Performance
-//!
-//! Benchmarked on `x86_64` with AVX2 (AMD Ryzen / Intel Core):
-//!
-//! | Operation | vs Naive | vs Unrolled Scalar |
-//! |-----------|----------|-------------------|
-//! | Null bitmap (10k rows) | **~2.2x faster** | ~10-14% faster |
-//! | Null bitmap (100k rows) | **~2.2x faster** | ~10-14% faster |
-//! | Combined workload | **~1.48x faster** | - |
-//!
-//! Buffer pool performance (10 iterations per measurement):
-//!
-//! | Buffer Size | Pool Raw vs `Vec::new` |
-//! |-------------|---------------------|
-//! | 4 KB | **~21% faster** |
-//! | 64 KB | **~5% faster** |
-//!
-//! # Usage
-//!
-//! Most users don't need to use this module directly - the serialization layer
-//! uses these functions automatically. For custom implementations:
-//!
-//! ```rust
-//! use clickhouse_arrow::simd::{expand_null_bitmap, PooledBuffer, BUFFER_POOL};
-//!
-//! // Expand Arrow null bitmap to ClickHouse format
-//! let bitmap = &[0b11101110u8]; // Arrow: bit=1 means valid
-//! let mut output = vec![0u8; 8];
-//! expand_null_bitmap(bitmap, &mut output, 8);
-//! // output: [0, 1, 0, 0, 1, 0, 0, 0] (ClickHouse: 0=valid, 1=null)
-//!
-//! // Use buffer pool for allocation reuse
-//! let mut buf = PooledBuffer::with_capacity(4096);
-//! buf.extend_from_slice(b"data");
-//! // Buffer automatically returned to pool on drop
-//! ```
-//!
-//! # Safety
-//!
-//! All SIMD operations are implemented with proper bounds checking and alignment handling.
-//! The public API is safe; unsafe code is encapsulated within platform-specific implementations.
+//! Falls back to scalar on platforms without AVX2/NEON. The serialisation layer
+//! uses these automatically – you probably don't need to call them directly.
 
-// ============================================================================
-// NULL BITMAP EXPANSION
-// ============================================================================
+// Null bitmap expansion
 
-/// Expands a packed null bitmap (1 bit per value) to byte mask (1 byte per value).
+/// Expand packed null bitmap (1 bit/value) to byte mask (1 byte/value).
 ///
-/// Arrow stores nulls as a packed bitmap where bit 0 = null, bit 1 = valid.
-/// `ClickHouse` expects a byte array where 0 = valid, 1 = null.
-///
-/// This function inverts and expands simultaneously for maximum efficiency.
-///
-/// # Arguments
-/// * `bitmap` - Packed bitmap bytes (Arrow format: 1 = valid, 0 = null)
-/// * `output` - Output buffer for expanded bytes (`ClickHouse` format: 0 = valid, 1 = null)
-/// * `len` - Number of values to expand (not bitmap bytes!)
-///
-/// # Safety
-/// The output buffer must have capacity for at least `len` bytes.
+/// Arrow: bit=1 valid, bit=0 null. ClickHouse: byte=0 valid, byte=1 null.
+/// We invert and expand in one pass. `len` is value count, not bitmap bytes.
 #[inline]
 pub fn expand_null_bitmap(bitmap: &[u8], output: &mut [u8], len: usize) {
     debug_assert!(output.len() >= len);
@@ -200,17 +148,7 @@ unsafe fn expand_byte_to_8_unchecked(byte: u8, output: &mut [u8], offset: usize)
     }
 }
 
-/// NEON implementation for aarch64.
-///
-/// Uses NEON SIMD to expand bitmap bytes. Processes 4 bytes at a time,
-/// producing 32 output bytes using vectorized bit testing.
-///
-/// The approach:
-/// 1. Load 1 byte, duplicate to 8 lanes
-/// 2. AND with bit mask [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80]
-/// 3. Compare equal to zero (inverted: 0xFF for null, 0x00 for valid)
-/// 4. AND with 0x01 to get [0 or 1] per lane
-/// 5. Store 8 bytes
+/// NEON implementation for aarch64 – 4 bytes at a time, 32 output bytes.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 unsafe fn expand_null_bitmap_neon(bitmap: &[u8], output: &mut [u8], len: usize) {
@@ -257,48 +195,23 @@ unsafe fn expand_null_bitmap_neon(bitmap: &[u8], output: &mut [u8], len: usize) 
     }
 }
 
-// ============================================================================
-// BUFFER SIZE CONSTANTS
-// ============================================================================
+// Buffer size constants
 
-/// Minimum chunk size for progressive sending (254 KB).
-///
-/// This value is chosen to fit comfortably within a 256 KB buffer while allowing
-/// for header overhead. Following the `clickhouse-rs` pattern, data is sent in
-/// chunks when the buffer exceeds this threshold.
-///
-/// # Usage
-/// - For streaming inserts, flush when buffer exceeds this size
-/// - Prevents memory buildup for large batch inserts
+/// Flush streaming inserts when buffer exceeds this (254 KB, leaves room for headers).
 pub const MIN_CHUNK_SIZE: usize = 254 * 1024;
 
-/// Default buffer allocation size (256 KB).
-///
-/// Used for pre-allocation of serialization buffers. This size balances:
-/// - Memory efficiency (not too large for small operations)
-/// - Performance (reduces reallocations for typical batch sizes)
-/// - Alignment (power of 2 for efficient memory allocation)
+/// Default serialisation buffer (256 KB).
 pub const DEFAULT_BUFFER_SIZE: usize = 256 * 1024;
 
-/// Default buffer size for `ArrowStream` serialization (1 MB).
-///
-/// Larger than [`DEFAULT_BUFFER_SIZE`] because Arrow batches typically
-/// contain more data than native protocol blocks.
+/// ArrowStream serialisation buffer (1 MB) – Arrow batches are chunkier.
 pub const ARROW_STREAM_BUFFER_SIZE: usize = 1024 * 1024;
 
-// ============================================================================
-// VARINT ENCODING/DECODING
-// ============================================================================
+// Varint encoding/decoding
 
-/// Maximum bytes needed for a varint-encoded u64.
+/// Max bytes for a varint-encoded u64.
 pub const MAX_VARINT_LEN: usize = 10;
 
-/// Encode a u64 as a varint into the provided buffer.
-///
-/// Returns the number of bytes written.
-///
-/// # Safety
-/// Buffer must have at least `MAX_VARINT_LEN` bytes available.
+/// Encode u64 as varint into buffer. Returns bytes written.
 #[inline]
 #[allow(clippy::cast_possible_truncation)] // Intentional: extracting low 7 bits per varint spec
 pub fn encode_varint(mut value: u64, buf: &mut [u8; MAX_VARINT_LEN]) -> usize {
@@ -316,9 +229,7 @@ pub fn encode_varint(mut value: u64, buf: &mut [u8; MAX_VARINT_LEN]) -> usize {
     }
 }
 
-/// Decode a varint from a byte slice.
-///
-/// Returns `(value, bytes_consumed)` or `None` if invalid.
+/// Decode varint from slice. Returns `(value, bytes_consumed)` or `None` if borked.
 #[inline]
 pub fn decode_varint(buf: &[u8]) -> Option<(u64, usize)> {
     if buf.is_empty() {
@@ -345,9 +256,7 @@ pub fn decode_varint(buf: &[u8]) -> Option<(u64, usize)> {
     None // Varint too long or truncated
 }
 
-/// Batch-encode multiple varints into a buffer.
-///
-/// Returns the total number of bytes written.
+/// Batch-encode varints. Reserves worst-case space upfront.
 #[inline]
 pub fn encode_varints_batch(values: &[u64], output: &mut Vec<u8>) {
     // Reserve worst-case space
@@ -360,18 +269,12 @@ pub fn encode_varints_batch(values: &[u64], output: &mut Vec<u8>) {
     }
 }
 
-// ============================================================================
-// BYTE SWAPPING FOR ENDIAN CONVERSION
-// ============================================================================
+// Byte swapping for endian conversion
 //
-// Note: Benchmarks show that the compiler's auto-vectorization of the scalar
-// loop outperforms hand-written AVX2 SIMD for byte swapping. The simple scalar
-// implementations below allow LLVM to generate optimal code for the target.
+// Benchmarks show LLVM's auto-vectorisation beats hand-written AVX2 here.
+// Simple scalar loops let the compiler do its thing.
 
-/// Swap bytes in a slice of u16 values (for big-endian to little-endian conversion).
-///
-/// The compiler auto-vectorizes this loop efficiently - benchmarks show this
-/// outperforms hand-written AVX2 SIMD by ~10-15%.
+/// Swap bytes in u16 slice (endian conversion). LLVM auto-vectorises this well.
 #[inline]
 pub fn swap_bytes_u16_slice(data: &mut [u16]) {
     for value in data.iter_mut() {
@@ -379,10 +282,7 @@ pub fn swap_bytes_u16_slice(data: &mut [u16]) {
     }
 }
 
-/// Swap bytes in a slice of u32 values.
-///
-/// The compiler auto-vectorizes this loop efficiently - benchmarks show this
-/// outperforms hand-written AVX2 SIMD by ~15-20%.
+/// Swap bytes in u32 slice. LLVM auto-vectorises this ~15-20% faster than hand-written SIMD.
 #[inline]
 pub fn swap_bytes_u32_slice(data: &mut [u32]) {
     for value in data.iter_mut() {
@@ -390,10 +290,7 @@ pub fn swap_bytes_u32_slice(data: &mut [u32]) {
     }
 }
 
-/// Swap bytes in a slice of u64 values.
-///
-/// The compiler auto-vectorizes this loop efficiently - benchmarks show this
-/// outperforms hand-written AVX2 SIMD by ~18-22%.
+/// Swap bytes in u64 slice.
 #[inline]
 pub fn swap_bytes_u64_slice(data: &mut [u64]) {
     for value in data.iter_mut() {
@@ -401,29 +298,19 @@ pub fn swap_bytes_u64_slice(data: &mut [u64]) {
     }
 }
 
-// ============================================================================
-// UUID BYTE SWAPPING
-// ============================================================================
+// UUID byte swapping
+//
+// ClickHouse stores UUIDs w/ high 8 bytes first, Arrow has low bytes first.
+// We swap the halves.
 
-/// Swap the halves of a UUID for `ClickHouse` format.
-///
-/// `ClickHouse` stores UUIDs with the high 8 bytes first, then low 8 bytes.
-/// Arrow/standard format has low bytes first, then high bytes.
-/// This function swaps the two halves in-place.
-///
-/// # Arguments
-/// * `uuid` - A mutable 16-byte array containing the UUID
+/// Swap UUID halves in-place for ClickHouse format.
 #[inline]
 pub fn swap_uuid_halves(uuid: &mut [u8; 16]) {
-    // Split into two mutable halves to avoid borrow conflicts
     let (low, high) = uuid.split_at_mut(8);
-    // Swap in-place using swap_with_slice
     low.swap_with_slice(high);
 }
 
-/// Convert a UUID from Arrow format to `ClickHouse` format.
-///
-/// Returns a new 16-byte array with halves swapped.
+/// Convert UUID from Arrow to ClickHouse format (returns new array).
 #[inline]
 pub fn uuid_to_clickhouse(uuid: &[u8; 16]) -> [u8; 16] {
     let mut result = [0u8; 16];
@@ -432,10 +319,7 @@ pub fn uuid_to_clickhouse(uuid: &[u8; 16]) -> [u8; 16] {
     result
 }
 
-/// Convert a UUID slice to `ClickHouse` format.
-///
-/// Returns a new 16-byte array with halves swapped.
-/// Returns None if the slice is not exactly 16 bytes.
+/// Convert UUID slice to ClickHouse format. Returns None if not 16 bytes.
 #[inline]
 pub fn uuid_slice_to_clickhouse(uuid: &[u8]) -> Option<[u8; 16]> {
     if uuid.len() != 16 {
@@ -447,29 +331,16 @@ pub fn uuid_slice_to_clickhouse(uuid: &[u8]) -> Option<[u8; 16]> {
     Some(result)
 }
 
-// ============================================================================
-// BUFFER POOL FOR ALLOCATION REUSE
-// ============================================================================
+// Buffer pool for allocation reuse
 
 use std::collections::VecDeque;
 
 use parking_lot::Mutex;
 
-/// A thread-safe pool for reusable byte buffers.
+/// Thread-safe buffer pool. Recycles allocations in hot paths.
 ///
-/// This reduces allocation overhead in hot paths by recycling buffers
-/// instead of allocating new ones for each operation.
-///
-/// ## Size Tiers
-///
-/// The pool uses five size tiers optimized for common workloads:
-/// - **Tiny**: 1KB - Small metadata, null bitmaps for small batches
-/// - **Small**: 4KB - Common serialization buffer size
-/// - **Medium**: 64KB - Typical batch serialization
-/// - **Large**: 1MB - Large batch processing
-/// - **`XLarge`**: >1MB - Very large batches (power-of-2 sizing)
-///
-/// Benchmarks show ~21% improvement for 4KB buffers, ~5% for 64KB.
+/// Five size tiers: Tiny (1KB), Small (4KB), Medium (64KB), Large (1MB), XLarge (>1MB).
+/// Benchmarks show ~21% faster for 4KB buffers, ~5% for 64KB.
 pub struct BufferPool {
     pools: [Mutex<VecDeque<Vec<u8>>>; 5], // Tiny, Small, Medium, Large, XLarge
 }
@@ -501,10 +372,7 @@ impl BufferPool {
         }
     }
 
-    /// Pre-warm the pool with buffers of common sizes.
-    ///
-    /// Call this during initialization to avoid cold-start allocation latency.
-    /// Useful for servers that need consistent low-latency from the first request.
+    /// Pre-warm the pool to avoid cold-start allocation latency.
     pub fn prewarm(&self) {
         // Pre-allocate common buffer sizes
         for _ in 0..4 {
@@ -514,9 +382,7 @@ impl BufferPool {
         }
     }
 
-    /// Get a buffer with at least `capacity` bytes.
-    ///
-    /// The returned buffer is cleared but may have higher capacity than requested.
+    /// Get a buffer w/ at least `capacity` bytes. Returned buffer is cleared.
     #[inline]
     pub fn get(&self, capacity: usize) -> Vec<u8> {
         let bucket = Self::bucket_for_size(capacity);
@@ -610,7 +476,7 @@ impl Default for BufferPool {
 /// Global buffer pool for hot path allocations.
 pub static BUFFER_POOL: BufferPool = BufferPool::new();
 
-/// RAII guard for pooled buffers - automatically returns buffer to pool on drop.
+/// RAII guard – returns buffer to pool on drop.
 pub struct PooledBuffer {
     buf: Option<Vec<u8>>,
 }
@@ -620,24 +486,15 @@ impl PooledBuffer {
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self { Self { buf: Some(BUFFER_POOL.get(capacity)) } }
 
-    /// Get mutable access to the underlying buffer.
-    ///
-    /// # Panics
-    /// Panics if the buffer has been taken via `take()`.
+    /// Get mutable access to the underlying buffer. Panics if already taken.
     #[inline]
     pub fn buffer_mut(&mut self) -> &mut Vec<u8> { self.buf.as_mut().unwrap() }
 
-    /// Get immutable access to the underlying buffer.
-    ///
-    /// # Panics
-    /// Panics if the buffer has been taken via `take()`.
+    /// Get immutable access. Panics if already taken.
     #[inline]
     pub fn buffer(&self) -> &Vec<u8> { self.buf.as_ref().unwrap() }
 
-    /// Take ownership of the buffer (won't be returned to pool).
-    ///
-    /// # Panics
-    /// Panics if the buffer has already been taken.
+    /// Take ownership of the buffer (won't be returned to pool). Panics if already taken.
     #[inline]
     pub fn take(mut self) -> Vec<u8> { self.buf.take().unwrap() }
 }
@@ -660,9 +517,7 @@ impl std::ops::DerefMut for PooledBuffer {
     fn deref_mut(&mut self) -> &mut Self::Target { self.buf.as_mut().unwrap() }
 }
 
-// ============================================================================
-// TESTS
-// ============================================================================
+// Tests
 
 #[cfg(test)]
 mod tests {

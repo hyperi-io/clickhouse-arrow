@@ -2,26 +2,34 @@
 
 ## Crates
 
-The project consists of two main crates:
+The project consists of several crates:
 
 ### [`clickhouse-arrow`](./clickhouse-arrow/README.md)
 
-The core client library that implements the `ClickHouse` native protocol with features like:
+The core client library – native TCP protocol w/ Arrow integration:
 
-- Arrow integration across most types. For divergences, see the library's [README](./clickhouse-arrow/README.md)
-- Ability to run both DDL and DML
-- Native Rust macro for serde-like (de)serialization
-- Performance in mind when working with data. If you have any suggestions for improving performance, I am always motivated to try and make it faster.
+- Arrow RecordBatch query/insert
+- DDL and DML support
+- SIMD-accelerated serialisation (~2.2x null bitmap speedup)
+- Buffer pooling (~21% faster allocations)
+- Sparse column support (MergeTree optimisation)
+- HTTP transport (ArrowStream) for environments requiring HTTP-only
 
 ### [`clickhouse-arrow-derive`](./clickhouse-arrow-derive)
 
-The `Row` macro. Procedural macros to (de)serialize rust data types into `ClickHouse` types:
+The `Row` derive macro for serde-like (de)serialisation of Rust structs to ClickHouse tables.
 
-- The `Row` macro for mapping Rust structs to `ClickHouse` tables for serde-like (de)serialization
+### [`py-clickhouse-arrow`](./py-clickhouse-arrow)
 
-For detailed documentation and examples, please refer to the library crate's README:
+Python bindings via PyO3/maturin. Sync API for data science workflows:
 
-- [ClickHouse Arrow Client Documentation](./clickhouse-arrow/README.md)
+```python
+import clickhouse_arrow
+client = clickhouse_arrow.connect("localhost:9000")
+batches = client.query("SELECT * FROM table")  # Returns PyArrow RecordBatches
+```
+
+See [py-clickhouse-arrow/README.md](./py-clickhouse-arrow/README.md) for details.
 
 ## Example Usage
 
@@ -73,22 +81,24 @@ clickhouse-arrow = { version = "0.1", features = ["pool"] }
 
 ## Features
 
-- **Native Protocol**: Direct communication with `ClickHouse`'s native protocol for optimal performance
-- **Arrow Integration**: Seamless interoperability with the Arrow ecosystem
-- **Flexible Types**: Support for both Arrow and native Rust types
-- **Async First**: Built on modern async Rust for efficient I/O
-- **Comprehensive**: Support for the full range of `ClickHouse` data types and features
+- Native TCP – faster and less CPU than HTTP
+- Arrow RecordBatch streaming w/ zero-copy where possible
+- SIMD null bitmap expansion (~2.2x)
+- Buffer pooling (~21% faster 4KB allocs)
+- Vectored I/O (15-25% fewer syscalls)
+- Sparse columns (MergeTree optimisation)
+- tokio-based async
 
 ## Performance
 
-clickhouse-arrow is designed for high performance:
+Overall v0.4.x is **~2x faster** than v0.2.x for typical mixed workloads.
 
-- **Zero-copy deserialization** where possible
-- **Minimal allocations** during data transfer
-- **Efficient streaming** for large datasets
-- **Optimized type conversions** between Arrow and ClickHouse
+Insert throughput improvements:
+- Bulk primitives: 40-60% faster
+- String batching: 20-35% faster
+- Deferred flush: 98% fewer syscalls (batch inserts)
+- SIMD null bitmaps: 2.2x faster
 
-Run benchmarks with:
 ```bash
 cargo bench --features test-utils
 ```

@@ -1,46 +1,18 @@
 #![expect(unused_crate_dependencies)]
 mod common;
 
-use std::hint::black_box;
 use std::sync::Arc;
 use std::time::Duration;
 
-use clickhouse::{Client as ClickHouseRsClient, Row as ClickHouseRow};
 use clickhouse_arrow::CompressionMethod;
 use clickhouse_arrow::prelude::*;
 use clickhouse_arrow::test_utils::{arrow_tests, get_or_create_container};
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main};
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 
 use self::common::{init, print_msg};
-
-#[derive(ClickHouseRow, Clone, Serialize, Deserialize)]
-pub(crate) struct ChTestRow {
-    number: u64,
-}
-
-pub(crate) fn query_rs_scalar(
-    query: &str,
-    rows: usize,
-    client: &ClickHouseRsClient,
-    group: &mut BenchmarkGroup<'_, WallTime>,
-    rt: &Runtime,
-) {
-    let _ = group.sample_size(10).measurement_time(Duration::from_secs(60)).bench_with_input(
-        BenchmarkId::new("clickhouse_rs", rows),
-        &(query, client),
-        |b, (query, client)| {
-            b.to_async(rt).iter(|| async move {
-                let result = client.query(query).fetch_all::<ChTestRow>().await.unwrap();
-                let len = result.len();
-                black_box((len, result))
-            });
-        },
-    );
-}
 
 fn query_arrow_native(
     query: &str,
@@ -85,7 +57,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     print_msg(format!("Scalar query - default compression - test for {rows} rows"));
 
-    // Setup clients
+    // Setup client
     let arrow_client_builder =
         arrow_tests::setup_test_arrow_client(ch.get_native_url(), &ch.user, &ch.password)
             .with_ipv4_only(true)
@@ -95,14 +67,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         .block_on(arrow_client_builder.build::<ArrowFormat>())
         .expect("clickhouse native arrow setup");
 
-    let rs_client = common::setup_clickhouse_rs(ch).with_compression(clickhouse::Compression::Lz4);
-
-    // Wrap clients in Arc for sharing across iterations
+    // Wrap client in Arc for sharing across iterations
     let arrow_client = Arc::new(arrow_client);
-    let rs_client = Arc::new(rs_client);
-
-    // Benchmark clickhouse-rs query
-    query_rs_scalar(&query, rows, rs_client.as_ref(), &mut query_group, &rt);
 
     // Benchmark native arrow query
     query_arrow_native(&query, rows, &arrow_client, &mut query_group, &rt);

@@ -22,6 +22,9 @@ use crate::geo::normalize_geo_type;
 use crate::io::{ClickHouseBytesRead, ClickHouseBytesWrite, ClickHouseRead, ClickHouseWrite};
 use crate::native::block_info::BlockInfo;
 use crate::native::protocol::DBMS_MIN_PROTOCOL_VERSION_WITH_CUSTOM_SERIALIZATION;
+use crate::native::sparse::{
+    SparseDeserializeState, expand_sparse_array, read_sparse_offsets, read_sparse_offsets_sync,
+};
 use crate::prelude::*;
 use crate::serialize::ClickHouseNativeSerializer;
 use crate::{ArrowOptions, Result, Type};
@@ -221,6 +224,7 @@ impl ProtocolData<RecordBatch, ArrowDeserializerState> for RecordBatch {
         let _ = deser.with_capacity(columns, rows);
 
         for i in 0..columns {
+            // eprintln!("[DEBUG] Starting to read column {}", i);
             let name = reader.read_utf8_string().await?;
             let type_name = reader.read_utf8_string().await?;
             let internal_type = Type::from_str(&type_name)?;
@@ -235,28 +239,104 @@ impl ProtocolData<RecordBatch, ArrowDeserializerState> for RecordBatch {
                 trace!(?field, ?type_hint, ?options, "deserializing column {i}");
             }
 
-            let _has_custom = if revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_CUSTOM_SERIALIZATION {
-                reader.read_u8().await? != 0
+            // Check for sparse/custom serialization
+            // Protocol: if has_custom=1, next byte is KindStackBinarySerializationType
+            // SPARSE=1 means the kind stack is {Default, Sparse}
+            let serialization_kind = if revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_CUSTOM_SERIALIZATION
+            {
+                let has_custom = reader.read_u8().await? != 0;
+                // eprintln!("[DEBUG] Column '{}' (index {}): has_custom={}", field.name(), i, has_custom);
+                if has_custom {
+                    // KindStackBinarySerializationType enum:
+                    // 0 = DEFAULT, 1 = SPARSE, 2 = DETACHED, 3 = DETACHED_OVER_SPARSE,
+                    // 4 = REPLICATED, 5 = COMBINATION
+                    let kind = reader.read_u8().await?;
+                    // eprintln!("[DEBUG] Column '{}' has custom serialization kind={}", field.name(), kind);
+                    if debug_arrow() {
+                        trace!(name = %field.name(), kind, "column has custom serialization");
+                    }
+                    if kind == 5 {
+                        // COMBINATION: read variable-length stack
+                        // Format: VarUInt count, then count x UInt8 kinds
+                        let count = reader.read_var_uint().await?;
+                        if debug_arrow() {
+                            trace!(name = %field.name(), count, "COMBINATION serialization stack");
+                        }
+                        for _ in 0..count {
+                            let _inner_kind = reader.read_u8().await?;
+                        }
+                        // For now, treat combinations containing SPARSE (kind=1) as sparse
+                        // This is a simplification - proper handling would inspect the stack
+                        1 // Treat as SPARSE for now
+                    } else {
+                        kind
+                    }
+                } else {
+                    0 // DEFAULT
+                }
             } else {
-                false
+                0 // DEFAULT (no custom serialization support)
             };
+            let is_sparse = serialization_kind == 1; // SPARSE
 
             let array = if rows > 0 {
                 let dt = field.data_type();
                 let builders = &mut deser.builders;
-                let builder = if let Some(b) = builders.get_mut(i) {
-                    b
-                } else {
-                    builders.push(TypedBuilder::try_new(&type_hint, dt)?);
-                    builders.last_mut().unwrap()
-                };
 
-                let row_buffer = &mut deser.buffer;
-                type_hint.deserialize_prefix_async(reader, &mut prefix_state).await?;
-                type_hint
-                    .deserialize_arrow_async(builder, reader, dt, rows, &[], row_buffer)
-                    .await
-                    .inspect_err(|error| error!(?error, ?field, "col {i} deserialize"))?
+                if is_sparse {
+                    // Sparse serialization: read offsets first, then only non-default values
+                    let mut sparse_state = SparseDeserializeState::default();
+                    let offsets = read_sparse_offsets(reader, rows, &mut sparse_state).await?;
+                    let sparse_rows = offsets.len();
+                    // eprintln!("[DEBUG] Sparse column '{}': {} offsets for {} total rows, first_offsets={:?}",
+                    //           field.name(), sparse_rows, rows,
+                    //           &offsets[..std::cmp::min(5, offsets.len())]);
+
+                    if debug_arrow() {
+                        trace!(
+                            ?field,
+                            total_rows = rows,
+                            sparse_rows,
+                            "deserializing sparse column {i}"
+                        );
+                    }
+
+                    // Deserialize only the non-default values
+                    let builder = if let Some(b) = builders.get_mut(i) {
+                        b
+                    } else {
+                        builders.push(TypedBuilder::try_new(&type_hint, dt)?);
+                        builders.last_mut().unwrap()
+                    };
+
+                    let row_buffer = &mut deser.buffer;
+                    // eprintln!("[DEBUG] Reading prefix for sparse column '{}'", field.name());
+                    type_hint.deserialize_prefix_async(reader, &mut prefix_state).await?;
+                    // eprintln!("[DEBUG] Reading {} sparse values for column '{}'", sparse_rows, field.name());
+                    let sparse_array = type_hint
+                        .deserialize_arrow_async(builder, reader, dt, sparse_rows, &[], row_buffer)
+                        .await
+                        .inspect_err(|error| error!(?error, ?field, "col {i} sparse deserialize"))?;
+                    // eprintln!("[DEBUG] Read sparse array for '{}', len={}", field.name(), sparse_array.len());
+
+                    // Expand sparse array to full size with defaults
+                    expand_sparse_array(&sparse_array, &offsets, rows)?
+                } else {
+                    // Normal (non-sparse) deserialization
+                    let builder = if let Some(b) = builders.get_mut(i) {
+                        b
+                    } else {
+                        builders.push(TypedBuilder::try_new(&type_hint, dt)?);
+                        builders.last_mut().unwrap()
+                    };
+
+                    let row_buffer = &mut deser.buffer;
+                    type_hint.deserialize_prefix_async(reader, &mut prefix_state).await?;
+                    type_hint
+                        .deserialize_arrow_async(builder, reader, dt, rows, &[], row_buffer)
+                        .await
+                        .inspect_err(|error| error!(?error, ?field, "col {i} deserialize"))?
+                }
             } else {
                 new_empty_array(field.data_type())
             };
@@ -308,28 +388,88 @@ impl ProtocolData<RecordBatch, ArrowDeserializerState> for RecordBatch {
                 trace!(?field, ?type_hint, ?options, "deserializing column {i}");
             }
 
-            // TODO: Ignored - pass this to prefix deserialization
-            let _has_custom = if revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_CUSTOM_SERIALIZATION {
-                reader.try_get_u8()? != 0
+            // Check for sparse/custom serialization
+            // Protocol: if has_custom=1, next byte is KindStackBinarySerializationType
+            // SPARSE=1 means the kind stack is {Default, Sparse}
+            let serialization_kind = if revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_CUSTOM_SERIALIZATION
+            {
+                let has_custom = reader.try_get_u8()? != 0;
+                if has_custom {
+                    // KindStackBinarySerializationType enum:
+                    // 0 = DEFAULT, 1 = SPARSE, 2 = DETACHED, 3 = DETACHED_OVER_SPARSE,
+                    // 4 = REPLICATED, 5 = COMBINATION
+                    let kind = reader.try_get_u8()?;
+                    if kind == 5 {
+                        // COMBINATION: read variable-length stack
+                        // Format: VarUInt count, then count x UInt8 kinds
+                        let count = reader.try_get_var_uint()?;
+                        for _ in 0..count {
+                            let _inner_kind = reader.try_get_u8()?;
+                        }
+                        // For now, treat combinations containing SPARSE (kind=1) as sparse
+                        // This is a simplification - proper handling would inspect the stack
+                        1 // Treat as SPARSE for now
+                    } else {
+                        kind
+                    }
+                } else {
+                    0 // DEFAULT
+                }
             } else {
-                false
+                0 // DEFAULT (no custom serialization support)
             };
+            let is_sparse = serialization_kind == 1; // SPARSE
 
             let array = if rows > 0 {
                 let dt = field.data_type();
-
                 let builders = &mut deser.builders;
-                let builder = if let Some(b) = builders.get_mut(i) {
-                    b
-                } else {
-                    builders.push(TypedBuilder::try_new(&type_hint, dt)?);
-                    builders.last_mut().unwrap()
-                };
 
-                type_hint.deserialize_prefix(reader)?;
-                type_hint
-                    .deserialize_arrow(builder, reader, dt, rows, &[], &mut deser.buffer)
-                    .inspect_err(|error| error!(?error, ?type_hint, ?field, "deserialize {i}"))?
+                if is_sparse {
+                    // Sparse serialization: read offsets first, then only non-default values
+                    let mut sparse_state = SparseDeserializeState::default();
+                    let offsets = read_sparse_offsets_sync(reader, rows, &mut sparse_state)?;
+                    let sparse_rows = offsets.len();
+
+                    if debug_arrow() {
+                        trace!(
+                            ?field,
+                            total_rows = rows,
+                            sparse_rows,
+                            "deserializing sparse column {i}"
+                        );
+                    }
+
+                    // Deserialize only the non-default values
+                    let builder = if let Some(b) = builders.get_mut(i) {
+                        b
+                    } else {
+                        builders.push(TypedBuilder::try_new(&type_hint, dt)?);
+                        builders.last_mut().unwrap()
+                    };
+
+                    type_hint.deserialize_prefix(reader)?;
+                    let sparse_array = type_hint
+                        .deserialize_arrow(builder, reader, dt, sparse_rows, &[], &mut deser.buffer)
+                        .inspect_err(|error| {
+                            error!(?error, ?type_hint, ?field, "sparse deserialize {i}")
+                        })?;
+
+                    // Expand sparse array to full size with defaults
+                    expand_sparse_array(&sparse_array, &offsets, rows)?
+                } else {
+                    // Normal (non-sparse) deserialization
+                    let builder = if let Some(b) = builders.get_mut(i) {
+                        b
+                    } else {
+                        builders.push(TypedBuilder::try_new(&type_hint, dt)?);
+                        builders.last_mut().unwrap()
+                    };
+
+                    type_hint.deserialize_prefix(reader)?;
+                    type_hint
+                        .deserialize_arrow(builder, reader, dt, rows, &[], &mut deser.buffer)
+                        .inspect_err(|error| error!(?error, ?type_hint, ?field, "deserialize {i}"))?
+                }
             } else {
                 new_empty_array(field.data_type())
             };

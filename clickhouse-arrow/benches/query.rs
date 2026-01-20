@@ -70,11 +70,11 @@ fn criterion_benchmark(c: &mut Criterion) {
     for rows in row_counts {
         print_msg(format!("Running test for {rows} rows"));
 
-        // Pre-create the batch and rows to avoid including this in benchmark time
+        // Pre-create the batch to avoid including this in benchmark time
         let batch = arrow_tests::create_test_batch(rows, false);
         let schema = batch.schema();
 
-        // Setup clients
+        // Setup client
         let arrow_client_builder =
             arrow_tests::setup_test_arrow_client(ch.get_native_url(), &ch.user, &ch.password)
                 .with_ipv4_only(true)
@@ -83,33 +83,23 @@ fn criterion_benchmark(c: &mut Criterion) {
             .block_on(arrow_client_builder.build::<ArrowFormat>())
             .expect("clickhouse native arrow setup");
 
-        let rs_client = common::setup_clickhouse_rs(ch);
-
         // Setup database
         rt.block_on(arrow_tests::setup_database(common::TEST_DB_NAME, &arrow_client))
             .expect("setup database");
 
-        // Setup tables
+        // Setup table
         let arrow_table_ref = rt
             .block_on(arrow_tests::setup_table(&arrow_client, common::TEST_DB_NAME, &schema))
-            .expect("clickhouse rs table");
-        let rs_table_ref = rt
-            .block_on(arrow_tests::setup_table(&arrow_client, common::TEST_DB_NAME, &schema))
-            .expect("clickhouse rs table");
+            .expect("arrow table");
 
-        // Wrap clients in Arc for sharing across iterations
+        // Wrap client in Arc for sharing across iterations
         let arrow_client = Arc::new(arrow_client);
-        let rs_client = Arc::new(rs_client);
 
-        // Insert into each table
+        // Insert test data
         rt.block_on(insert_arrow(&arrow_table_ref, arrow_client.as_ref(), batch.clone()));
-        rt.block_on(insert_arrow(&rs_table_ref, arrow_client.as_ref(), batch.clone()));
 
         // Benchmark native arrow query
         query_arrow(&arrow_table_ref, rows, arrow_client.as_ref(), &mut query_group, &rt);
-
-        // Benchmark clickhouse-rs query
-        common::query_rs(&rs_table_ref, rows, rs_client.as_ref(), &mut query_group, &rt);
     }
 
     query_group.finish();

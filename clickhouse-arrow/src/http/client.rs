@@ -1,4 +1,8 @@
-//! HTTP client for `ClickHouse`.
+//! HTTP client for ClickHouse (ArrowStream format).
+//!
+//! Here if you *must* use something this slow – maybe a proxy requirement or
+//! your network team insists on HTTP-only egress. Native protocol is faster
+//! and more CPU-efficient at both ends.
 
 use arrow::array::RecordBatch;
 use bytes::Bytes;
@@ -10,28 +14,10 @@ use super::config::HttpOptions;
 use crate::errors::Result;
 use crate::Error;
 
-/// HTTP client for `ClickHouse` using `ArrowStream` format.
+/// HTTP client using ClickHouse's ArrowStream format.
 ///
-/// This client provides an alternative to the native TCP protocol, using HTTP
-/// with `ClickHouse`'s `FORMAT ArrowStream` for efficient Arrow data exchange.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use clickhouse_arrow::http::{HttpClient, HttpOptions};
-///
-/// let options = HttpOptions::new("http://localhost:8123")?
-///     .with_database("default")
-///     .with_credentials("default", "");
-///
-/// let client = HttpClient::new(options)?;
-///
-/// // Execute a query
-/// let batches = client.query("SELECT * FROM my_table").await?;
-///
-/// // Insert data
-/// client.insert("my_table", batch).await?;
-/// ```
+/// Alternative to native TCP when you need HTTP (proxies, load balancers, etc).
+/// Simpler but slightly higher latency than native protocol.
 #[derive(Debug, Clone)]
 pub struct HttpClient {
     client:  reqwest::Client,
@@ -39,10 +25,7 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
-    /// Create a new HTTP client with the given options.
-    ///
-    /// # Errors
-    /// Returns an error if the reqwest client cannot be built.
+    /// Create a new HTTP client.
     pub fn new(options: HttpOptions) -> Result<Self> {
         let mut builder = reqwest::Client::builder()
             .timeout(options.timeout)
@@ -93,25 +76,7 @@ impl HttpClient {
         url
     }
 
-    /// Execute a SELECT query and return results as Arrow `RecordBatch`es.
-    ///
-    /// The query is executed with `FORMAT ArrowStream` and the response is
-    /// deserialized into Arrow record batches.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - The HTTP request fails
-    /// - The response indicates an error
-    /// - The `ArrowStream` cannot be deserialized
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let batches = client.query("SELECT id, name FROM users WHERE active = 1").await?;
-    /// for batch in batches {
-    ///     println!("Got {} rows", batch.num_rows());
-    /// }
-    /// ```
+    /// Execute SELECT query, returns Arrow RecordBatches.
     #[must_use = "query results should be used"]
     #[instrument(skip(self), fields(sql = %sql))]
     pub async fn query(&self, sql: &str) -> Result<Vec<RecordBatch>> {
@@ -132,20 +97,7 @@ impl HttpClient {
         self.handle_response(response).await
     }
 
-    /// Execute a DDL or other non-returning query.
-    ///
-    /// Use this for CREATE, DROP, ALTER, and other statements that don't return data.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - The HTTP request fails
-    /// - The response indicates an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// client.execute("CREATE TABLE IF NOT EXISTS users (id UInt64, name String) ENGINE = MergeTree ORDER BY id").await?;
-    /// ```
+    /// Execute DDL or non-returning query (CREATE, DROP, ALTER, etc).
     #[instrument(skip(self), fields(sql = %sql))]
     pub async fn execute(&self, sql: &str) -> Result<()> {
         let mut url = self.options.url.clone();
@@ -173,22 +125,7 @@ impl HttpClient {
         Ok(())
     }
 
-    /// Insert Arrow data into a table.
-    ///
-    /// The `RecordBatch` is serialized to `ArrowStream` format and sent to `ClickHouse`.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - The batch cannot be serialized
-    /// - The HTTP request fails
-    /// - The response indicates an error
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let batch = create_record_batch();
-    /// client.insert("users", batch).await?;
-    /// ```
+    /// Insert Arrow RecordBatch into a table.
     #[instrument(skip(self, batch), fields(table = %table, rows = batch.num_rows()))]
     pub async fn insert(&self, table: &str, batch: RecordBatch) -> Result<()> {
         let sql = format!("INSERT INTO {table} FORMAT ArrowStream");
@@ -221,23 +158,7 @@ impl HttpClient {
         Ok(())
     }
 
-    /// Insert multiple Arrow batches into a table.
-    ///
-    /// All batches must have the same schema. They are combined into a single
-    /// `ArrowStream` and sent in one request.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - The batches have mismatched schemas
-    /// - Serialization fails
-    /// - The HTTP request fails
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let batches = vec![batch1, batch2, batch3];
-    /// client.insert_batches("users", batches).await?;
-    /// ```
+    /// Insert multiple Arrow batches (all must have same schema).
     #[instrument(skip(self, batches), fields(table = %table, batch_count = batches.len()))]
     pub async fn insert_batches(&self, table: &str, batches: Vec<RecordBatch>) -> Result<()> {
         if batches.is_empty() {

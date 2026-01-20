@@ -1,41 +1,13 @@
-/// Compression and decompression utilities for `ClickHouse`'s native protocol.
-///
-/// This module provides functions to compress and decompress data using LZ4, as well as a
-/// `DecompressionReader` for streaming decompression of `ClickHouse` data blocks. It supports
-/// the `CompressionMethod` enum from the protocol module, handling both LZ4 and no
-/// compression.
-///
-/// # Features
-/// - Compresses raw data into LZ4 format with `compress_data`.
-/// - Decompresses LZ4-compressed data with `decompress_data`, including checksum validation.
-/// - Provides `DecompressionReader` for async reading of decompressed data streams.
-///
-/// # Compression Frame Format
-///
-/// `ClickHouse` uses a custom compression frame format for both LZ4 and ZSTD:
-///
-/// ```text
-/// ┌─────────────────────────────────────────────────────────────────┐
-/// │ Offset │ Size   │ Description                                   │
-/// ├────────┼────────┼───────────────────────────────────────────────┤
-/// │ 0      │ 8      │ CityHash128 checksum (high 64 bits)           │
-/// │ 8      │ 8      │ CityHash128 checksum (low 64 bits)            │
-/// │ 16     │ 1      │ Compression method byte:                      │
-/// │        │        │   - 0x82: LZ4                                 │
-/// │        │        │   - 0x90: ZSTD                                │
-/// │ 17     │ 4      │ Compressed size (little-endian u32)           │
-/// │        │        │   Includes 9-byte header (method + sizes)     │
-/// │ 21     │ 4      │ Decompressed size (little-endian u32)         │
-/// │ 25     │ N      │ Compressed payload                            │
-/// └────────┴────────┴───────────────────────────────────────────────┘
-/// ```
-///
-/// The checksum covers bytes 16 through end (method byte + sizes + payload).
-/// This matches the format used by `clickhouse-rs` and the official C++ client.
-///
-/// # `ClickHouse` Reference
-/// See the [ClickHouse Native Protocol Documentation](https://clickhouse.com/docs/en/interfaces/tcp)
-/// for details on compression in the native protocol.
+//! Compression/decompression for ClickHouse native protocol.
+//!
+//! LZ4 and ZSTD support w/ ClickHouse's custom frame format:
+//! - 16 bytes: CityHash128 checksum
+//! - 1 byte: compression method (0x82=LZ4, 0x90=ZSTD)
+//! - 4 bytes: compressed size (incl. 9-byte header)
+//! - 4 bytes: decompressed size
+//! - N bytes: payload
+//!
+//! Checksum covers method+sizes+payload. Matches clickhouse-rs and official C++ client.
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -47,22 +19,7 @@ use crate::io::{ClickHouseRead, ClickHouseWrite};
 use crate::native::protocol::CompressionMethod;
 use crate::{Error, Result};
 
-/// Writes compressed data using `ClickHouse` chunk format.
-///
-/// Compresses the input data using the specified compression method and writes it with:
-/// - 16 bytes: `CityHash128` checksum of the compressed block
-/// - 1 byte: compression type
-/// - 4 bytes: compressed size (including 9-byte header)
-/// - 4 bytes: decompressed size
-/// - N bytes: compressed payload
-///
-/// # Arguments
-/// * `writer` - The writer to write compressed data to
-/// * `raw` - The raw data to compress
-/// * `compression` - The compression method to use (LZ4, ZSTD, or None)
-///
-/// # Returns
-/// `Result<()>` indicating success or failure
+/// Compress and write in ClickHouse chunk format.
 #[expect(clippy::cast_possible_truncation)]
 #[cfg_attr(not(test), expect(unused))]
 pub(crate) async fn compress_data<W: ClickHouseWrite>(
@@ -126,16 +83,7 @@ pub(crate) async fn compress_data_sync<W: ClickHouseWrite>(
     Ok(())
 }
 
-/// Compresses data from a pooled buffer and writes to the `ClickHouse` protocol.
-///
-/// # v0.4.0 Optimisation
-///
-/// This function accepts a `PooledBuffer` which is automatically returned to the
-/// buffer pool when dropped, reducing allocation overhead for high-throughput workloads.
-///
-/// The `ClickHouse` compression format requires knowing sizes upfront (for the header),
-/// so true streaming compression isn't possible. However, using pooled buffers
-/// significantly reduces allocation pressure compared to per-batch allocations.
+/// Compress from pooled buffer – reduces malloc churn for high-throughput inserts.
 #[expect(clippy::cast_possible_truncation)]
 pub(crate) async fn compress_data_pooled<W: ClickHouseWrite>(
     writer: &mut W,
@@ -170,29 +118,7 @@ pub(crate) async fn compress_data_pooled<W: ClickHouseWrite>(
     Ok(())
 }
 
-/// Reads and decompresses a single compression chunk.
-///
-/// Reads the chunk header (checksum + compression metadata), validates the checksum,
-/// and decompresses the payload using the specified compression method. Each chunk follows the
-/// format:
-/// - 16 bytes: `CityHash128` checksum
-/// - 1 byte: compression type
-/// - 4 bytes: compressed size (including 9-byte header)
-/// - 4 bytes: decompressed size
-/// - N bytes: compressed payload
-///
-/// # Arguments
-/// * `reader` - The reader to read chunk data from
-/// * `compression` - The `CompressionMethod` used (LZ4 or ZSTD)
-///
-/// # Returns
-/// Decompressed chunk data as `Vec<u8>`
-///
-/// # Errors
-/// - I/O errors if unable to read expected data
-/// - Checksum mismatches indicating data corruption
-/// - Decompression failures
-/// - Memory safety violations for oversized chunks
+/// Read and decompress a single chunk. Validates CityHash128 checksum.
 pub(crate) async fn decompress_data_async(
     reader: &mut impl ClickHouseRead,
     compression: CompressionMethod,
@@ -270,20 +196,7 @@ pub(crate) async fn decompress_data_async(
 type BlockReadingFuture<'a, R> =
     Pin<Box<dyn Future<Output = Result<(Vec<u8>, &'a mut R)>> + Send + Sync + 'a>>;
 
-/// An async reader that decompresses `ClickHouse` data blocks on-the-fly.
-///
-/// Wraps a `ClickHouseRead` reader to provide decompressed data as an `AsyncRead` stream.
-/// Supports ZSTD and LZ4, handling block-by-block decompression.
-///
-/// # Example
-/// ```rust,ignore
-/// use clickhouse_arrow::compression::{CompressionMethod, DecompressionReader};
-/// use tokio::io::AsyncReadExt;
-///
-/// let mut decompressor = DecompressionReader::new(CompressionMethod::LZ4, reader);
-/// let mut buffer = vec![0u8; 1024];
-/// let bytes_read = decompressor.read(&mut buffer).await.unwrap();
-/// ```
+/// Async reader that decompresses ClickHouse blocks on-the-fly.
 pub(crate) struct DecompressionReader<'a, R: ClickHouseRead + 'static> {
     mode:                 CompressionMethod,
     inner:                Option<&'a mut R>,
@@ -293,24 +206,7 @@ pub(crate) struct DecompressionReader<'a, R: ClickHouseRead + 'static> {
 }
 
 impl<'a, R: ClickHouseRead> DecompressionReader<'a, R> {
-    /// Creates a new streaming decompressor by reading all compression chunks.
-    ///
-    /// Reads and decompresses all compression chunks from the provided reader,
-    /// concatenating them into a single decompressed buffer. Each chunk is validated
-    /// with its `CityHash128` checksum before decompression.
-    ///
-    /// # Arguments
-    /// * `mode` - The compression method
-    /// * `reader` - The `ClickHouse` reader containing compressed chunk data
-    ///
-    /// # Returns
-    /// A `DecompressionReader` ready to serve decompressed data via `AsyncRead`
-    ///
-    /// # Errors
-    /// - Checksum validation failures
-    /// - Decompression errors
-    /// - I/O errors reading from the underlying stream
-    /// - Memory safety violations (chunk sizes exceeding limits)
+    /// Create decompressor. Reads first chunk immediately.
     pub(crate) async fn new(mode: CompressionMethod, inner: &'a mut R) -> Result<Self> {
         // Decompress intial block
         let decompressed = decompress_data_async(inner, mode).await.inspect_err(|error| {

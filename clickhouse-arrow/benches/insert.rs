@@ -75,22 +75,14 @@ fn criterion_benchmark(c: &mut Criterion) {
         )
         .expect("clickhouse native arrow setup");
 
-    // Setup rs clients
-    let rs_client = common::setup_clickhouse_rs(ch).with_compression(clickhouse::Compression::None);
-    let rs_client_lz4 =
-        common::setup_clickhouse_rs(ch).with_compression(clickhouse::Compression::Lz4);
-
     // Setup database
     rt.block_on(arrow_tests::setup_database(common::TEST_DB_NAME, &arrow_client))
         .expect("setup database");
 
-    // Setup tables
+    // Setup table
     let arrow_table_ref = rt
         .block_on(arrow_tests::setup_table(&arrow_client, common::TEST_DB_NAME, &schema))
-        .expect("clickhouse rs table");
-    let rs_table_ref = rt
-        .block_on(arrow_tests::setup_table(&arrow_client, common::TEST_DB_NAME, &schema))
-        .expect("clickhouse rs table");
+        .expect("arrow table");
 
     // Test with different row counts
     let row_counts = vec![10_000, 100_000, 200_000, 300_000, 400_000];
@@ -98,23 +90,11 @@ fn criterion_benchmark(c: &mut Criterion) {
     for rows in row_counts {
         print_msg(format!("Insert test for {rows} rows"));
 
-        // Pre-create the batch and rows to avoid including this in benchmark time
+        // Pre-create the batch to avoid including this in benchmark time
         let batch = arrow_tests::create_test_batch(rows, false);
-        let test_rows = common::create_test_rows(rows);
 
         // Benchmark arrow insert no compression
         insert_arrow("none", &arrow_table_ref, rows, &arrow_client, &batch, &mut insert_group, &rt);
-
-        // Benchmark clickhouse-rs insert no compression
-        common::insert_rs(
-            "none",
-            &rs_table_ref,
-            rows,
-            &rs_client,
-            &test_rows,
-            &mut insert_group,
-            &rt,
-        );
 
         // Benchmark arrow insert lz4 compression
         insert_arrow(
@@ -123,17 +103,6 @@ fn criterion_benchmark(c: &mut Criterion) {
             rows,
             &arrow_client_lz4,
             &batch,
-            &mut insert_group,
-            &rt,
-        );
-
-        // Benchmark clickhouse-rs insert lz4 compression
-        common::insert_rs(
-            "lz4",
-            &rs_table_ref,
-            rows,
-            &rs_client_lz4,
-            &test_rows,
             &mut insert_group,
             &rt,
         );
