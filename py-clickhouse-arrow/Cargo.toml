@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 [dependencies]
 # Core clickhouse-arrow crate - enable serde for Error impls
 clickhouse-arrow = { path = "../clickhouse-arrow", default-features = false, features = ["serde"] }
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py39"] }
 arrow = { version = "57", default-features = false, features = ["ffi"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 futures-util = { version = "0.3", default-features = false }

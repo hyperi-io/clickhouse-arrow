@@ -24,7 +24,7 @@ impl Client {
 #[pymethods]
 impl Client {
     /// Execute query, returns list of PyArrow RecordBatches.
-    fn query(&self, py: Python<'_>, query: &str) -> PyResult<Vec<PyObject>> {
+    fn query(&self, py: Python<'_>, query: &str) -> PyResult<Vec<Py<PyAny>>> {
         // Execute query and collect all batches
         let batches: Vec<RecordBatch> = to_py_result(block_on(async {
             let stream = self.inner.query(query, None).await?;

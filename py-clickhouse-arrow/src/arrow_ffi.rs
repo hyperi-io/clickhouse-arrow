@@ -41,7 +41,7 @@ impl From<ArrowFfiError> for PyErr {
 /// Export a `RecordBatch` to a PyArrow `RecordBatch` via the C Data Interface.
 ///
 /// Uses PyArrow's `RecordBatch._import_from_c(array_ptr, schema_ptr)` method.
-pub(crate) fn record_batch_to_pyarrow(py: Python<'_>, batch: &RecordBatch) -> PyResult<PyObject> {
+pub(crate) fn record_batch_to_pyarrow(py: Python<'_>, batch: &RecordBatch) -> PyResult<Py<PyAny>> {
     // Import PyArrow
     let pyarrow = py
         .import("pyarrow")
@@ -63,7 +63,7 @@ pub(crate) fn record_batch_to_pyarrow(py: Python<'_>, batch: &RecordBatch) -> Py
     let pa_record_batch = pyarrow.getattr("RecordBatch")?;
     let result = pa_record_batch.call_method1("_import_from_c", (array_ptr, schema_ptr))?;
 
-    Ok(result.into())
+    Ok(result.unbind())
 }
 
 /// Import a `RecordBatch` from a PyArrow object via the C Data Interface.

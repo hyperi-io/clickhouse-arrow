@@ -36,7 +36,7 @@ use crate::runtime::block_on;
 ///
 /// Example:
 ///     >>> client = ClientBuilder().endpoint("localhost:9000").build()
-#[pyclass(name = "ClientBuilder")]
+#[pyclass(name = "ClientBuilder", from_py_object)]
 #[derive(Clone)]
 #[expect(unnameable_types)]
 pub struct PyClientBuilder {
