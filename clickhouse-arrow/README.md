@@ -1,6 +1,6 @@
 # ClickHouse Native Protocol Rust Client w/ Arrow Compatibility
 
-Native TCP ClickHouse client with Apache Arrow integration. v0.4.2 "Life the Universe and Everything".
+Native TCP ClickHouse client with Apache Arrow integration. v0.4.3.
 
 Supports protocol revision `54479` (ClickHouse 25.x).
 
