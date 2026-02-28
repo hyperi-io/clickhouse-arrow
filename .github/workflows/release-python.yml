@@ -292,9 +292,9 @@ jobs:
           name: wheel-win-x64
           path: dist/*.whl
 
-  # Publish to PyPI
+  # Publish to JFrog Artifactory PyPI
   publish-to-pypi:
-    name: Publish to PyPI
+    name: Publish to Artifactory PyPI
     needs:
       - create-sdist
       - build-linux-x64
@@ -303,14 +303,9 @@ jobs:
       - build-macos-x64
       - build-macos-arm64
       - build-windows-x64
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # Only publish on tag push or when dry-run is false
     if: github.event_name == 'push' || inputs.dry-run == false
-    environment:
-      name: release-python
-      url: https://pypi.org/project/clickarrow
-    permissions:
-      id-token: write  # For PyPI trusted publishing (OIDC)
 
     steps:
       - name: Download sdists and wheels
@@ -322,14 +317,21 @@ jobs:
       - name: List artifacts
         run: ls -la dist/
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          packages-dir: dist/
-          # Uses OIDC trusted publishing if available, falls back to API key
-          password: ${{ secrets.PYPI_API_KEY }}
-          skip-existing: true
-          verbose: true
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Publish to Artifactory PyPI
+        run: |
+          pip install twine
+          twine upload \
+            --repository-url "${{ vars.ARTIFACTORY_PYPI_PUBLISH_URL }}/" \
+            --username "${{ secrets.ARTIFACTORY_CI_USERNAME }}" \
+            --password "${{ secrets.ARTIFACTORY_CI_TOKEN }}" \
+            --skip-existing \
+            --verbose \
+            dist/*
 
   # Create GitHub release
   publish-to-github:

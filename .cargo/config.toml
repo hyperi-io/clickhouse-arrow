@@ -16,3 +16,8 @@ codegen-units = 4
 
 [profile.release]
 codegen-units = 8
+
+# Private Cargo registry (JFrog Artifactory)
+[registries.hyperi]
+index = "sparse+https://hypersec.jfrog.io/artifactory/api/cargo/hyperi-cargo-virtual/index/"
+credential-provider = "cargo:token"

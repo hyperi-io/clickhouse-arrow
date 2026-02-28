@@ -1,6 +1,7 @@
 [package]
 name = "py-clickhouse-arrow"
 version = "0.1.0"
+publish = false
 description = "Python bindings for clickhouse-arrow - High-performance ClickHouse client with Arrow integration"
 edition.workspace = true
 rust-version.workspace = true

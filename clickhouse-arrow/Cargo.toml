@@ -1,6 +1,7 @@
 [package]
 name = "clickhouse-arrow"
 description = "ClickHouse Arrow Client for Rust"
+publish = ["hyperi"]
 keywords.workspace = true
 categories.workspace = true
 version.workspace = true

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       skip_publish:
-        description: "Create release only"
+        description: "Create release only (skip Cargo publish)"
         default: false
         required: false
         type: boolean
@@ -21,13 +21,13 @@ on:
         default: false
         required: false
         type: boolean
-      verify_derive:
-        description: "Verify (--dry-run) clickhouse-arrow-derive"
+      dry_run:
+        description: "Dry run (verify publish only)"
         default: false
         required: false
         type: boolean
       version:
-        description: "Version to release (e.g., 0.1.5)"
+        description: "Version to release (e.g., 0.4.3)"
         required: false
         type: string
 
@@ -41,7 +41,7 @@ env:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,21 +50,35 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Configure Cargo registry
+        run: |
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml << 'TOML'
+          [registry]
+          global-credential-providers = ["cargo:token"]
+
+          [registries.hyperi]
+          index = "sparse+https://hypersec.jfrog.io/artifactory/api/cargo/hyperi-cargo-virtual/index/"
+          credential-provider = "cargo:token"
+          TOML
+
+          cat >> ~/.cargo/credentials.toml << CREDS
+          [registries.hyperi]
+          token = "Bearer ${{ secrets.ARTIFACTORY_CI_TOKEN }}"
+          CREDS
+
       - name: Verify version consistency
         run: |
           # Determine version based on trigger type
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ -n "${{ inputs.version }}" ]; then
-              # Use provided version input
               VERSION="${{ inputs.version }}"
               echo "Using provided version: $VERSION"
             else
-              # Extract version from Cargo.toml
               VERSION=$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
               echo "Using version from Cargo.toml: $VERSION"
             fi
           else
-            # Extract version from tag (push trigger)
             VERSION=${GITHUB_REF#refs/tags/v}
             echo "Using version from tag: $VERSION"
           fi
@@ -83,36 +97,32 @@ jobs:
           echo "Verifying version constants..."
           cargo test test_version_matches_cargo --features test-utils
 
-      - name: Verify publish
-        if: ${{ inputs.skip_publish == false && inputs.verify_derive == true }}
+      - name: Verify publish (dry run)
+        if: ${{ inputs.dry_run == true || (inputs.skip_publish == false && inputs.dry_run != true) }}
         run: |
-          cargo publish --dry-run -p clickhouse-arrow-derive --no-verify --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          cargo publish --dry-run -p clickhouse-arrow --no-verify --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          cargo publish --registry hyperi --dry-run -p clickhouse-arrow-derive --no-verify
+          cargo publish --registry hyperi --dry-run -p clickhouse-arrow --no-verify
 
-      - name: Publish clickhouse-arrow-derive to crates.io
-        if: ${{ inputs.skip_publish == false && inputs.skip_derive == false }}
+      - name: Publish clickhouse-arrow-derive to Artifactory
+        if: ${{ inputs.skip_publish == false && inputs.skip_derive == false && inputs.dry_run != true }}
         run: |
-          cargo publish -p clickhouse-arrow-derive --no-verify --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          sleep 30  # Wait for crates.io to index
+          cargo publish --registry hyperi -p clickhouse-arrow-derive --no-verify
+          sleep 10  # Wait for Artifactory to index
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRIES_HYPERI_TOKEN: "Bearer ${{ secrets.ARTIFACTORY_CI_TOKEN }}"
 
-      - name: Publish clickhouse-arrow to crates.io
-        if: ${{ inputs.skip_publish == false && inputs.skip_crate == false }}
+      - name: Publish clickhouse-arrow to Artifactory
+        if: ${{ inputs.skip_publish == false && inputs.skip_crate == false && inputs.dry_run != true }}
         run: |
-          cargo publish -p clickhouse-arrow --no-verify --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          cargo publish --registry hyperi -p clickhouse-arrow --no-verify
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRIES_HYPERI_TOKEN: "Bearer ${{ secrets.ARTIFACTORY_CI_TOKEN }}"
 
       - name: Extract release notes
         run: |
-          # Check if RELEASE_NOTES.md exists (from the PR)
           if [ -f "RELEASE_NOTES.md" ]; then
             cp RELEASE_NOTES.md release_notes_for_tag.md
           else
-            # Generate release notes for this tag if not present
             echo "# Release v$VERSION" > release_notes_for_tag.md
             echo "" >> release_notes_for_tag.md
             echo "This release was published from tag v$VERSION" >> release_notes_for_tag.md
@@ -120,13 +130,8 @@ jobs:
 
       - name: Build release artifacts
         run: |
-          # Build optimized library for verification
           cargo build --release -p clickhouse-arrow
-
-          # Generate documentation
           cargo doc --no-deps -p clickhouse-arrow --release
-
-          # Create docs archive
           tar -czf docs-${{ env.VERSION }}.tar.gz -C target/doc .
 
       - name: Create GitHub Release
@@ -142,7 +147,7 @@ jobs:
 
       # Trigger Python rebuild – wheels depend on core Rust crate
       - name: Trigger Python release rebuild
-        if: ${{ inputs.skip_publish == false }}
+        if: ${{ inputs.skip_publish == false && inputs.dry_run != true }}
         uses: peter-evans/repository-dispatch@v3
         with:
           event-type: rust-release
