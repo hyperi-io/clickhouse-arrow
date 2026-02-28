@@ -1,3 +1,10 @@
+## [0.4.5](https://github.com/hyperi-io/clickhouse-arrow/compare/v0.4.4...v0.4.5) (2026-02-28)
+
+
+### Bug Fixes
+
+* publish derive before main crate in release workflow ([1fadc23](https://github.com/hyperi-io/clickhouse-arrow/commit/1fadc23cc87d3290bd641c70d99dcd241cbb1fce))
+
 ## [0.4.4](https://github.com/hyperi-io/clickhouse-arrow/compare/v0.4.3...v0.4.4) (2026-02-28)
 
 
