@@ -1,3 +1,10 @@
+## [0.4.4](https://github.com/hyperi-io/clickhouse-arrow/compare/v0.4.3...v0.4.4) (2026-02-28)
+
+
+### Bug Fixes
+
+* add registry field to clickhouse-arrow-derive dependency ([be1ca45](https://github.com/hyperi-io/clickhouse-arrow/commit/be1ca45c744d026a9ea6a708b64919ca44d4e3f7))
+
 # [0.3.0](https://github.com/hyperi-io/clickhouse-arrow/compare/v0.2.1...v0.3.0) (2026-02-28)
 
 
