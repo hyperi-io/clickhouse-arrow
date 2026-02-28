@@ -98,24 +98,32 @@ jobs:
           echo "Verifying version constants..."
           cargo test test_version_matches_cargo --features test-utils
 
-      - name: Verify publish (dry run)
-        if: ${{ inputs.dry_run == true || (inputs.skip_publish == false && inputs.dry_run != true) }}
+      # Publish derive first — clickhouse-arrow depends on it being in the registry
+      - name: Verify and publish clickhouse-arrow-derive
+        if: ${{ inputs.skip_derive == false }}
         run: |
           cargo publish --registry hyperi --dry-run -p clickhouse-arrow-derive --no-verify
-          cargo publish --registry hyperi --dry-run -p clickhouse-arrow --no-verify
-
-      - name: Publish clickhouse-arrow-derive to Artifactory
-        if: ${{ inputs.skip_publish == false && inputs.skip_derive == false && inputs.dry_run != true }}
-        run: |
-          cargo publish --registry hyperi -p clickhouse-arrow-derive --no-verify
-          sleep 10  # Wait for Artifactory to index
+          if [ "${{ inputs.dry_run }}" != "true" ] && [ "${{ inputs.skip_publish }}" != "true" ]; then
+            echo "Publishing clickhouse-arrow-derive..."
+            cargo publish --registry hyperi -p clickhouse-arrow-derive --no-verify
+            echo "Waiting for Artifactory to index..."
+            sleep 15
+          else
+            echo "Dry run — skipping actual publish"
+          fi
         env:
           CARGO_REGISTRIES_HYPERI_TOKEN: "Bearer ${{ secrets.ARTIFACTORY_CI_TOKEN }}"
 
-      - name: Publish clickhouse-arrow to Artifactory
-        if: ${{ inputs.skip_publish == false && inputs.skip_crate == false && inputs.dry_run != true }}
+      - name: Verify and publish clickhouse-arrow
+        if: ${{ inputs.skip_crate == false }}
         run: |
-          cargo publish --registry hyperi -p clickhouse-arrow --no-verify
+          cargo publish --registry hyperi --dry-run -p clickhouse-arrow --no-verify
+          if [ "${{ inputs.dry_run }}" != "true" ] && [ "${{ inputs.skip_publish }}" != "true" ]; then
+            echo "Publishing clickhouse-arrow..."
+            cargo publish --registry hyperi -p clickhouse-arrow --no-verify
+          else
+            echo "Dry run — skipping actual publish"
+          fi
         env:
           CARGO_REGISTRIES_HYPERI_TOKEN: "Bearer ${{ secrets.ARTIFACTORY_CI_TOKEN }}"
 
