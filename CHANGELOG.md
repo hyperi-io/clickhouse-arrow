@@ -1,3 +1,28 @@
+# [0.3.0](https://github.com/hyperi-io/clickhouse-arrow/compare/v0.2.1...v0.3.0) (2026-02-28)
+
+
+### Bug Fixes
+
+* add semicolons to simd.rs function calls for clippy ([75d3c9c](https://github.com/hyperi-io/clickhouse-arrow/commit/75d3c9c015faa07a1ee6f8d61245d5aea39e932c))
+* bump version to 0.4.3 for dependency updates release ([daf8d89](https://github.com/hyperi-io/clickhouse-arrow/commit/daf8d89d40d7461edf83ba9f8706c292eede12cb))
+* clippy lint fixes and version bump to 0.4.2 ([890b7ec](https://github.com/hyperi-io/clickhouse-arrow/commit/890b7ecc46f1d9c55910c992dbd74c5a9d12afea))
+* remove unnecessary parentheses in memory benchmark ([bb8de5b](https://github.com/hyperi-io/clickhouse-arrow/commit/bb8de5b3b38186a091cdc92a05076f32d419527c))
+* resolve clippy warnings for CI compliance ([6b33cdb](https://github.com/hyperi-io/clickhouse-arrow/commit/6b33cdbe8b8b2563c6e51603b1859fee482d5fad))
+* switch publishing from crates.io to JFrog Artifactory ([1573b6b](https://github.com/hyperi-io/clickhouse-arrow/commit/1573b6b746a29bbca7cab2101b6674c10bfa10ae))
+* use macos-14 for Intel builds (macos-13 retired) ([92bd75f](https://github.com/hyperi-io/clickhouse-arrow/commit/92bd75f1f4aaccc3b7cd9ce4bd8f664b628606bb))
+* use macos-15-intel native runner for x86_64 wheels ([0c0abde](https://github.com/hyperi-io/clickhouse-arrow/commit/0c0abdef182d2694d4995bbbbdcba7aa1e0e02a9))
+* v0.4.1 backlog cleanup ([974d795](https://github.com/hyperi-io/clickhouse-arrow/commit/974d795d3019e4ef47520a4038c806f38436f535))
+
+
+### Features
+
+* add Python bindings via PyO3 and maturin ([54ddc1f](https://github.com/hyperi-io/clickhouse-arrow/commit/54ddc1f4c4a8355a0d896790ff587fa01cdf4fc4))
+* add SIMD optimizations, buffer pooling, and E2E tests for new types ([7dc4a65](https://github.com/hyperi-io/clickhouse-arrow/commit/7dc4a65ec9f37dce2ba794e2051b5269e708e365))
+* add Variant/Dynamic/Nested/BFloat16 type support ([4422856](https://github.com/hyperi-io/clickhouse-arrow/commit/4422856750958e59bf7ad8f70da11665bb4ff6dd))
+* v0.4.0 Scale-Ready Release ([29cb5ac](https://github.com/hyperi-io/clickhouse-arrow/commit/29cb5ac714887f7d3e18280fa6d74a4e368912cb))
+* v0.4.1 HTTP transport and performance optimisations ([c8bb264](https://github.com/hyperi-io/clickhouse-arrow/commit/c8bb2649d6a3ab17c700b0267de7b90ac986afe8)), closes [#96](https://github.com/hyperi-io/clickhouse-arrow/issues/96)
+* v0.4.1 HTTP transport and performance optimisations ([1bce8cc](https://github.com/hyperi-io/clickhouse-arrow/commit/1bce8cc6c8399d269dac384736561e312cf1a34b))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -252,5 +277,3 @@ This release focuses on maximising native protocol advantages for high-volume wo
 - Updates ci to use nightly rustfmt ([272f62b](https://github.com/georgeleepatterson/clickhouse-arrow/commit/272f62bb037408032174efbafd5f3e9594634469))
 - Updates ci to install clippy for nightly ([8217724](https://github.com/georgeleepatterson/clickhouse-arrow/commit/8217724dfded6b3453e30261841fa57ae521b087))
 - Working through getting the ci workflow right ([784a4da](https://github.com/georgeleepatterson/clickhouse-arrow/commit/784a4da7527f4ec73a561653fed9a756817d1315))
-
-
