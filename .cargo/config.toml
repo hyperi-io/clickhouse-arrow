@@ -17,7 +17,7 @@ codegen-units = 4
 [profile.release]
 codegen-units = 8
 
-# Private Cargo registry (JFrog Artifactory)
+# Public Cargo registry (JFrog Artifactory — anonymous read, authenticated write)
 [registries.hyperi]
-index = "sparse+https://hypersec.jfrog.io/artifactory/api/cargo/hyperi-cargo-virtual/index/"
+index = "sparse+https://hypersec.jfrog.io/artifactory/api/cargo/hyperi-cargo-public-virtual/index/"
 credential-provider = "cargo:token"

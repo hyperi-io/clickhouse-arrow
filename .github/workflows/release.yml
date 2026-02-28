@@ -57,7 +57,7 @@ jobs:
           global-credential-providers = ["cargo:token"]
 
           [registries.hyperi]
-          index = "sparse+https://hypersec.jfrog.io/artifactory/api/cargo/hyperi-cargo-virtual/index/"
+          index = "sparse+https://hypersec.jfrog.io/artifactory/api/cargo/hyperi-cargo-public-virtual/index/"
           credential-provider = "cargo:token"
           TOML
 
