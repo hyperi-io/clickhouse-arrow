@@ -1,9 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       skip_publish:
@@ -79,8 +78,10 @@ jobs:
               echo "Using version from Cargo.toml: $VERSION"
             fi
           else
-            VERSION=${GITHUB_REF#refs/tags/v}
-            echo "Using version from tag: $VERSION"
+            # Extract version from release tag (release event)
+            VERSION=${{ github.event.release.tag_name }}
+            VERSION=${VERSION#v}
+            echo "Using version from release tag: $VERSION"
           fi
 
           echo "VERSION=$VERSION" >> $GITHUB_ENV
