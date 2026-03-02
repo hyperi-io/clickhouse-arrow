@@ -1,3 +1,10 @@
+## [0.4.6](https://github.com/hyperi-io/clickhouse-arrow/compare/v0.4.5...v0.4.6) (2026-03-02)
+
+
+### Bug Fixes
+
+* use GH_RUNNER_DEFAULT variable instead of hardcoded runner ([482bbc4](https://github.com/hyperi-io/clickhouse-arrow/commit/482bbc4ffb4de727af83b839fa1a3f1afe2c4840))
+
 ## [0.4.5](https://github.com/hyperi-io/clickhouse-arrow/compare/v0.4.4...v0.4.5) (2026-02-28)
 
 
