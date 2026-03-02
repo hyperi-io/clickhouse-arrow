@@ -17,8 +17,7 @@ env:
 jobs:
   # Auto-label PRs based on files changed
   label:
-    runs-on: ubuntu-latest
-    steps:
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}    steps:
       - uses: actions/labeler@v6
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
@@ -27,8 +26,7 @@ jobs:
 
   # Validate PR title follows conventional commits
   validate-title:
-    runs-on: ubuntu-latest
-    steps:
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}    steps:
       - uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,8 +47,7 @@ jobs:
 
   # Auto-merge dependabot PRs that pass CI
   auto-merge-dependabot:
-    runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}    if: github.actor == 'dependabot[bot]'
     needs: [label, validate-title]
     steps:
       - name: Dependabot metadata

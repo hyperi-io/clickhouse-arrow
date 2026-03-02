@@ -17,8 +17,7 @@ permissions:
 
 jobs:
   update-release-draft:
-    runs-on: ubuntu-latest
-    # Only run on push to main (not PRs)
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}    # Only run on push to main (not PRs)
     if: github.event_name == 'push'
     permissions:
       contents: write
@@ -29,8 +28,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   label-pr:
-    runs-on: ubuntu-latest
-    # Only run on PRs
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}    # Only run on PRs
     if: github.event_name == 'pull_request'
     steps:
       - uses: release-drafter/release-drafter@v6
